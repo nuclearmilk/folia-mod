@@ -1,7 +1,9 @@
-import { LocalPlaylist, LocalSong } from '../types';
+import { LocalPlaylist, LocalSong, SongResult } from '../types';
 import { getFromCache, getLocalSongs, saveToCache } from './db';
+import { getPlaybackSongKey } from '../utils/appPlaybackGuards';
 
 const LOCAL_PLAYLISTS_CACHE_KEY = 'local_playlists';
+const CUSTOM_PLAYLIST_TRACK_PREFIX = 'custom_playlist_track_';
 const FAVORITE_PLAYLIST_NAME = 'Liked Songs';
 const UNNAMED_PLAYLIST_NAME = 'Untitled Playlist';
 
@@ -129,6 +131,78 @@ export const resolveCanonicalLocalSongId = (songId: string, songs: LocalSong[]):
     return buildDuplicateImportCanonicalSongIds(songs).get(duplicateKey) || songId;
 };
 
+export const isCustomPlaylistTrackKey = (songId: string): boolean => (
+    songId.startsWith('online:') || songId.startsWith('navidrome:')
+);
+
+export const getCustomPlaylistTrackCacheKey = (playbackKey: string): string => (
+    `${CUSTOM_PLAYLIST_TRACK_PREFIX}${playbackKey}`
+);
+
+const inMemoryCustomTrackCache = new Map<string, SongResult>();
+
+export const getCachedCustomPlaylistTrack = (playbackKey: string): SongResult | null => (
+    inMemoryCustomTrackCache.get(playbackKey) ?? null
+);
+
+export const saveCustomPlaylistTrack = async (song: SongResult): Promise<string> => {
+    const key = getPlaybackSongKey(song);
+    inMemoryCustomTrackCache.set(key, song);
+    await saveToCache(getCustomPlaylistTrackCacheKey(key), song);
+    return key;
+};
+
+export const saveCustomPlaylistTracks = async (songs: SongResult[]): Promise<string[]> => {
+    return Promise.all(songs.map(song => saveCustomPlaylistTrack(song)));
+};
+
+export const getCustomPlaylistTrack = async (playbackKey: string): Promise<SongResult | null> => {
+    if (inMemoryCustomTrackCache.has(playbackKey)) {
+        return inMemoryCustomTrackCache.get(playbackKey)!;
+    }
+    const cached = await getFromCache<SongResult>(getCustomPlaylistTrackCacheKey(playbackKey));
+    if (cached) {
+        inMemoryCustomTrackCache.set(playbackKey, cached);
+    }
+    return cached;
+};
+
+export const getCustomPlaylistTracks = async (playbackKeys: string[]): Promise<Map<string, SongResult>> => {
+    const map = new Map<string, SongResult>();
+    const uniqueKeys = Array.from(new Set(playbackKeys.filter(isCustomPlaylistTrackKey)));
+    if (!uniqueKeys.length) return map;
+
+    const missingKeys: string[] = [];
+    uniqueKeys.forEach(key => {
+        const memoryHit = inMemoryCustomTrackCache.get(key);
+        if (memoryHit) {
+            map.set(key, memoryHit);
+        } else {
+            missingKeys.push(key);
+        }
+    });
+
+    if (missingKeys.length > 0) {
+        const entries = await Promise.all(
+            missingKeys.map(async key => {
+                const track = await getFromCache<SongResult>(getCustomPlaylistTrackCacheKey(key));
+                if (track) {
+                    inMemoryCustomTrackCache.set(key, track);
+                }
+                return [key, track] as const;
+            })
+        );
+
+        entries.forEach(([key, track]) => {
+            if (track) {
+                map.set(key, track);
+            }
+        });
+    }
+
+    return map;
+};
+
 const repairPlaylistSongIds = (
     songIds: string[],
     validSongById: Map<string, LocalSong>,
@@ -139,6 +213,16 @@ const repairPlaylistSongIds = (
     let changed = false;
 
     songIds.forEach(songId => {
+        if (isCustomPlaylistTrackKey(songId)) {
+            if (seen.has(songId)) {
+                changed = true;
+                return;
+            }
+            seen.add(songId);
+            repairedSongIds.push(songId);
+            return;
+        }
+
         const song = validSongById.get(songId);
         if (!song) {
             changed = true;
@@ -296,13 +380,24 @@ export const saveLocalPlaylists = async (playlists: LocalPlaylist[]): Promise<Lo
     return normalized;
 };
 
-export const createLocalPlaylist = async (name: string, songs: LocalSong[] = []): Promise<LocalPlaylist> => {
+export const createLocalPlaylist = async (name: string, songs: (LocalSong | SongResult)[] = []): Promise<LocalPlaylist> => {
     const playlists = await getLocalPlaylists();
     const now = Date.now();
+    const songIds: string[] = [];
+    for (const song of songs) {
+        if ('filePath' in song && typeof (song as LocalSong).id === 'string') {
+            songIds.push((song as LocalSong).id);
+        } else {
+            const track = song as SongResult;
+            await saveCustomPlaylistTrack(track);
+            songIds.push(getPlaybackSongKey(track));
+        }
+    }
+
     const playlist: LocalPlaylist = {
         id: createPlaylistId(),
         name: name.trim(),
-        songIds: dedupeSongIds(songs.map(song => song.id)),
+        songIds: dedupeSongIds(songIds),
         createdAt: now,
         updatedAt: now,
     };
@@ -352,16 +447,26 @@ export const canDeleteLocalPlaylist = (playlist: LocalPlaylist | null | undefine
     return Boolean(playlist && !playlist.isFavorite);
 };
 
-const addSongIdsToLocalPlaylist = async (playlistId: string, songIds: string[]): Promise<LocalPlaylist | null> => (
+export const addSongIdsToLocalPlaylist = async (playlistId: string, songIds: string[]): Promise<LocalPlaylist | null> => (
     updateLocalPlaylist(playlistId, playlist => ({
         ...playlist,
         songIds: dedupeSongIds([...playlist.songIds, ...songIds]),
     }))
 );
 
-export const addSongsToLocalPlaylist = async (playlistId: string, songs: LocalSong[]): Promise<LocalPlaylist | null> => (
-    addSongIdsToLocalPlaylist(playlistId, songs.map(song => song.id))
-);
+export const addSongsToLocalPlaylist = async (playlistId: string, songs: (LocalSong | SongResult)[]): Promise<LocalPlaylist | null> => {
+    const songIds: string[] = [];
+    for (const song of songs) {
+        if ('filePath' in song && typeof (song as LocalSong).id === 'string') {
+            songIds.push((song as LocalSong).id);
+        } else {
+            const track = song as SongResult;
+            await saveCustomPlaylistTrack(track);
+            songIds.push(getPlaybackSongKey(track));
+        }
+    }
+    return addSongIdsToLocalPlaylist(playlistId, songIds);
+};
 
 export const removeSongsFromLocalPlaylist = async (playlistId: string, songIds: string[]): Promise<LocalPlaylist | null> => {
     const removingIds = new Set(songIds);

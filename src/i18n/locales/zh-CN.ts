@@ -1480,6 +1480,8 @@ export default {
     "loginNoteQishui": "请使用抖音 App 扫码并确认授权",
     "loginTitleBodian": "使用波点音乐 App 扫码",
     "loginNoteBodian": "打开波点音乐 App 扫描二维码并确认登录",
+    "loginTitleBilibili": "使用哔哩哔哩 App 扫码",
+    "loginNoteBilibili": "打开哔哩哔哩 App 扫描二维码并确认登录",
     "loginTitleYtm": "登录 YouTube Music",
     "loginNoteYtmBrowser": "会打开一个单独的浏览器窗口。在里面登录 Google，看到 YouTube Music 显示你的账号后，关掉那个窗口。",
     "loginNoteYtmBrowserMac": "会打开一个单独的浏览器窗口。在里面登录 Google，看到 YouTube Music 显示你的账号后，退出那个浏览器（⌘Q）。",

@@ -5,6 +5,7 @@ import type { MotionValue } from 'framer-motion';
 import { PlayerState, type SongResult, type LyricData } from '../../../types';
 import type { OmniCollection, OmniProviderId } from '../../../types/onlineMusic';
 import LatticePlaybackProvider, { type LatticePlaybackActions } from './LatticePlaybackProvider';
+import { LatticeSongActionsContext } from './LatticeSongActionsContext';
 import { LatticeTransportContext, type LatticeTransport } from './LatticeTransportContext';
 import PosterWall from './PosterWall';
 import LatticeFocusButton from './LatticeFocusButton';
@@ -186,7 +187,12 @@ export default function Lattice({
         [canTogglePlayback, currentSong, currentTime, playbackDuration, playerState],
     );
 
+    const songActions = useMemo(() => ({
+        onPlaySong: (song: SongResult, songQueue?: SongResult[]) => onPlaySong(song, songQueue ?? queue),
+    }), [onPlaySong, queue]);
+
     return (
+        <LatticeSongActionsContext.Provider value={songActions}>
         <LatticeTransportContext.Provider value={transport}>
         <LatticePlaybackProvider actions={controls} currentSong={currentSong} queue={queue} lyrics={lyrics}
             currentTime={currentTime} lyricCurrentTime={lyricCurrentTime} duration={playbackDuration} onSeek={onSeek} isDaylight={isDaylight}>
@@ -248,5 +254,6 @@ export default function Lattice({
         </LatticeLyricsProvider>
         </LatticePlaybackProvider>
         </LatticeTransportContext.Provider>
+        </LatticeSongActionsContext.Provider>
     );
 }

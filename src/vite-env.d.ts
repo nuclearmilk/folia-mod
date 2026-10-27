@@ -952,6 +952,10 @@ declare global {
         operation: import('./services/onlineMusic/spotify/spotifyTransport').SpotifyOperation,
         params?: import('./services/onlineMusic/spotify/spotifyTransport').SpotifyParams,
       ) => Promise<import('./services/onlineMusic/spotify/spotifyTransport').SpotifyBridgeResult>;
+      bilibiliRequest: (
+        operation: import('./services/onlineMusic/bilibili/bilibiliTransport').BilibiliOperation,
+        params?: Record<string, unknown>,
+      ) => Promise<import('./services/onlineMusic/bilibili/bilibiliTransport').BilibiliBridgeResult>;
       kugouRequest: (
         operation: ElectronKugouOperation,
         params?: Record<string, string | number | boolean | undefined>,

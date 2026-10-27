@@ -6,6 +6,8 @@ import { getActiveEntities } from '../../../utils/localLibraryIndex';
 import type { LibraryDirectorySelectionType } from '../directory/directory.contract';
 import type { LibraryHomeActionsSnapshot, LibraryHomeCard, LibraryHomeListAction } from './homeModel.contract';
 import { isHomeImportBusy } from './homeSources';
+import { getCachedCustomPlaylistTrack, isCustomPlaylistTrackKey } from '../../../services/localPlaylistService';
+import { getSongCoverUrl } from '../../../services/onlineMusic/songMetadata';
 
 // src/library/core/home/localHomeModel.ts
 // Builds local-library overview groups for the desktop Grid3D surface.
@@ -208,14 +210,34 @@ export const buildLocalHomeGroups = (
             .map(songId => songsById.get(songId))
             .filter((song): song is LocalSong => Boolean(song));
 
+        let coverUrl = getLocalCoverUrlOf(playlistSongs);
+        if (!coverUrl) {
+            for (const songId of playlist.songIds) {
+                if (isCustomPlaylistTrackKey(songId)) {
+                    const customTrack = getCachedCustomPlaylistTrack(songId);
+                    if (customTrack) {
+                        const onlineCover = getSongCoverUrl(customTrack);
+                        if (onlineCover) {
+                            coverUrl = onlineCover;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Count both valid local songs and custom non-local tracks
+        const validCustomTrackCount = playlist.songIds.filter(isCustomPlaylistTrackKey).length;
+        const totalCount = playlistSongs.length + validCustomTrackCount;
+
         return {
             type: 'playlist' as const,
             name: playlist.name,
             songs: playlistSongs,
-            coverUrl: getLocalCoverUrlOf(playlistSongs),
+            coverUrl,
             id: `playlist-${playlist.id}`,
             playlistId: playlist.id,
-            trackCount: playlistSongs.length,
+            trackCount: totalCount,
             description: playlist.isFavorite ? t('localMusic.favoritePlaylist') : t('home.playlists'),
             isVirtual: playlist.isFavorite,
         };

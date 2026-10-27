@@ -1,4 +1,6 @@
 const { app, BrowserWindow, globalShortcut, ipcMain, session, screen, dialog, shell, nativeImage, webContents: electronWebContents, Menu, Tray, nativeTheme, powerSaveBlocker, safeStorage, protocol, crashReporter, net: electronNet } = require('electron');
+
+
 // 必须先于其它模块加载：TEMP / TMP 里没展开的 %USERPROFILE% 会让 os.tmpdir() 变成相对路径（#690）。
 for (const repair of require('./tempDirEnvironment.cjs').repairTempDirEnvironment()) {
   console.warn(`[TempDir] expanded ${repair.key}: ${repair.from} -> ${repair.to}`);
@@ -69,6 +71,8 @@ const { createQishuiApiBridge } = require('./qishui/qishuiApiBridge.cjs');
 const { createQishuiMediaPolicy } = require('./qishui/mediaCors.cjs');
 const { createBodianApiBridge } = require('./bodian/bodianApiBridge.cjs');
 const { createBodianMediaPolicy } = require('./bodian/mediaCors.cjs');
+const { createBilibiliApiBridge } = require('./bilibili/bilibiliApiBridge.cjs');
+const { createBilibiliMediaPolicy } = require('./bilibili/mediaCors.cjs');
 const { createYtmApiBridge } = require('./ytm/ytmApiBridge.cjs');
 const { createYtmSandbox } = require('./ytm/sandbox.cjs');
 const { YTM_AUDIO_PRIVILEGED_SCHEME, YTM_AUDIO_SCHEME } = require('./ytm/audio.cjs');
@@ -364,6 +368,12 @@ const bodianApiBridge = createBodianApiBridge({ store, safeStorage,
     request.on('response', onResponse);
     return request;
   },
+});
+const bilibiliMediaPolicy = createBilibiliMediaPolicy();
+const bilibiliApiBridge = createBilibiliApiBridge({
+  store,
+  safeStorage,
+  onAudioSource: url => bilibiliMediaPolicy.register(url),
 });
 // YouTube Music talks to Google from its own network partition and without a cookie jar: the
 // account is carried by a request header, and stored cookies would tie the guest sessions to it.
@@ -3660,7 +3670,7 @@ function setupCorsBypassHandlers() {
         hostname === 'kugou.com' ||
         hostname.endsWith('.kugou.com') ||
         // Bodian audio and cover CDNs may omit CORS headers needed by Web Audio and canvas/WebGL.
-        bodianMediaPolicy.allows(details) || qishuiMediaPolicy.allows(details);
+        bodianMediaPolicy.allows(details) || qishuiMediaPolicy.allows(details) || bilibiliMediaPolicy.allows(details);
     } catch (error) {
       isTargetDomain = false;
     }
@@ -3675,7 +3685,19 @@ function setupCorsBypassHandlers() {
     callback({ cancel: false, responseHeaders });
   });
 
-  ses.webRequest.onBeforeRedirect(details => { bodianMediaPolicy.followRedirect(details); qishuiMediaPolicy.followRedirect(details); });
+  ses.webRequest.onBeforeSendHeaders((details, callback) => {
+    if (bilibiliMediaPolicy.shouldInjectReferer(details.url)) {
+      details.requestHeaders['Referer'] = 'https://www.bilibili.com/';
+      details.requestHeaders['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+    }
+    callback({ cancel: false, requestHeaders: details.requestHeaders });
+  });
+
+  ses.webRequest.onBeforeRedirect(details => {
+    bodianMediaPolicy.followRedirect(details);
+    qishuiMediaPolicy.followRedirect(details);
+    bilibiliMediaPolicy.followRedirect(details);
+  });
 
   ses.webRequest.onErrorOccurred({ urls: ['*://*.kugou.com/*'] }, details => {
     const requestInfo = getKugouMediaRequestInfo(details);
@@ -5653,8 +5675,13 @@ function createWindow(options = {}) {
   win.__wallpaperGeometry = useWallpaperGeometry;
   win.__transparentFullscreen = false;
 
-  if (process.platform === 'win32' && useTransparentWindow) {
-    win.webContents.on('before-input-event', (event, input) => {
+  win.webContents.on('before-input-event', (event, input) => {
+    if (input.type === 'keyDown' && (input.key === 'F12' || (input.control && input.shift && input.key === 'I'))) {
+      win.webContents.toggleDevTools();
+      event.preventDefault();
+      return;
+    }
+    if (process.platform === 'win32' && useTransparentWindow) {
       if (input.type !== 'keyDown' || input.key !== 'F11' || input.isAutoRepeat) {
         return;
       }
@@ -5662,8 +5689,8 @@ function createWindow(options = {}) {
       if (!isWallpaperModeEnabled()) {
         setMainWindowFullscreen(win, !isMainWindowFullscreen(win));
       }
-    });
-  }
+    }
+  });
 
   if (useDesktopWindowType) {
     x11WallpaperWindows.add(win);
@@ -6994,6 +7021,12 @@ ipcMain.handle('spotify-api-request', (event, operation, params) => {
     return { ok: false, error: { code: 'unavailable', message: 'Untrusted Spotify request' } };
   }
   return spotifyApiBridge.request(operation, params);
+});
+ipcMain.handle('bilibili-api-request', (event, operation, params) => {
+  if (!isTrustedMainWindowContents(event.sender)) {
+    return { ok: false, error: { code: 'unavailable', message: 'Untrusted Bilibili request' } };
+  }
+  return bilibiliApiBridge.request(operation, params);
 });
 
 ipcMain.handle('window-minimize', () => {

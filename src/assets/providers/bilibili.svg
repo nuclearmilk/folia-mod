@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img">
+  <defs>
+    <linearGradient id="bili-surface" x1="8" y1="7" x2="56" y2="58" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#00A1D6"/>
+      <stop offset="1" stop-color="#23C9ED"/>
+    </linearGradient>
+  </defs>
+  <rect x="4" y="4" width="56" height="56" rx="18" fill="url(#bili-surface)"/>
+  <!-- Antennas -->
+  <path d="M22 17 L16 11" stroke="#FFFFFF" stroke-width="4" stroke-linecap="round"/>
+  <path d="M42 17 L48 11" stroke="#FFFFFF" stroke-width="4" stroke-linecap="round"/>
+  <!-- TV Body -->
+  <rect x="14" y="19" width="36" height="28" rx="7" fill="#FFFFFF"/>
+  <rect x="17" y="22" width="30" height="22" rx="4" fill="#00A1D6"/>
+  <!-- Eyes -->
+  <circle cx="26" cy="31" r="2.5" fill="#FFFFFF"/>
+  <circle cx="38" cy="31" r="2.5" fill="#FFFFFF"/>
+  <!-- Mouth -->
+  <path d="M30 36 Q32 38 34 36" stroke="#FFFFFF" stroke-width="2" stroke-linecap="round" fill="none"/>
+</svg>

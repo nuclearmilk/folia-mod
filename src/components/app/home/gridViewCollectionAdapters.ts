@@ -1,5 +1,5 @@
 import type React from 'react';
-import { LocalLibraryGroup, LocalSong, SongResult } from '../../../types';
+import { LocalLibraryGroup, LocalSong, SongResult, UnifiedSong } from '../../../types';
 import { LIST_ROW_COVER_SIZE, buildLocalQueue } from '../../../services/playbackAdapters';
 import { sortLocalFolderSongs } from '../../../utils/localSongSorting';
 import type { LocalLibraryAssignment, LocalLibraryEntity } from '../../../types/localLibrary';
@@ -13,6 +13,8 @@ import type {
 } from '../../../library/core/collection/collection.contract';
 import { buildLocalLibraryIndex, followEntityRedirect } from '../../../utils/localLibraryIndex';
 import { getLocalCoverAssetUrl } from '../../../services/localCoverAssetUrl';
+import { getCachedCustomPlaylistTrack, isCustomPlaylistTrackKey } from '../../../services/localPlaylistService';
+import { getSongCoverUrl } from '../../../services/onlineMusic/songMetadata';
 
 // src/components/app/home/gridViewCollectionAdapters.ts
 // Converts home-surface collections into small GridView descriptors and resolves non-Netease tracks outside GridView.
@@ -182,19 +184,36 @@ export const refreshLocalGridViewCollection = (
     };
 };
 
-// Rebuilds a local GridView queue from descriptor ids while preserving descriptor order.
+// Rebuilds a local GridView queue from descriptor ids while preserving descriptor order,
+// resolving either local file entities or cached custom tracks (online/navidrome) in mixed playlists.
 export const resolveLocalGridViewTracks = (
     descriptor: LocalGridViewCollectionDescriptor,
     localSongs: LocalSong[],
     catalog?: { entities: LocalLibraryEntity[]; assignments: LocalLibraryAssignment[]; },
+    customTracksMap?: Map<string, SongResult>,
 ): SongResult[] => {
     const songsById = new Map(localSongs.map(song => [song.id, song]));
-    const orderedSongs = descriptor.songIds
-        .map(songId => songsById.get(songId))
-        .filter((song): song is LocalSong => Boolean(song));
+    const results: SongResult[] = [];
 
-    // Row-sized covers: GridView renders these as list thumbnails, never full-bleed.
-    return buildLocalQueue(orderedSongs, undefined, catalog, LIST_ROW_COVER_SIZE) as SongResult[];
+    descriptor.songIds.forEach(songId => {
+        const localSong = songsById.get(songId);
+        if (localSong) {
+            const queueItems = buildLocalQueue([localSong], undefined, catalog, LIST_ROW_COVER_SIZE);
+            if (queueItems[0]) {
+                results.push(queueItems[0] as SongResult);
+            }
+            return;
+        }
+
+        if (isCustomPlaylistTrackKey(songId)) {
+            const customTrack = customTracksMap?.get(songId) ?? getCachedCustomPlaylistTrack(songId);
+            if (customTrack) {
+                results.push(customTrack);
+            }
+        }
+    });
+
+    return results;
 };
 
 const getLocalGridViewCoverSource = (songs: LocalSong[]): string | undefined => {
@@ -228,7 +247,21 @@ export const resolveLocalGridViewCoverSource = (
         .map(songId => songsById.get(songId))
         .filter((song): song is LocalSong => Boolean(song));
 
-    return getLocalGridViewCoverSource(orderedSongs);
+    const localCover = getLocalGridViewCoverSource(orderedSongs);
+    if (localCover) return localCover;
+
+    // If no local songs or local songs have no cover, check custom tracks for a cover
+    for (const songId of descriptor.songIds) {
+        if (isCustomPlaylistTrackKey(songId)) {
+            const custom = getCachedCustomPlaylistTrack(songId);
+            if (custom) {
+                const cover = getSongCoverUrl(custom);
+                if (cover) return cover;
+            }
+        }
+    }
+
+    return undefined;
 };
 
 // Navidrome 曲目的加载搬到了 library/core/collection/resource/navidromeCollectionTracks.service；资源直接使用它，这里只适配集合描述与本地数据。

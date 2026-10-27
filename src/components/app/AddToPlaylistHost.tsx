@@ -49,9 +49,9 @@ const describeSong = (song: SongResult | null, hasOnlinePlaylists: boolean) => {
         isNavidrome, isLocal, isOnline, canAddOnlineSong, canCreateOnline,
         onlineProviderLabel: playbackSourceRef?.kind === 'online' ? omni.getProviderLabel(playbackSourceRef.providerId) : '',
         isApplicable: Boolean(song && !isStage && (isLocal || isOnline || isNavidrome)),
-        // Local, Navidrome and some online providers can make a playlist on the spot, so having
-        // none is not a refusal there.
-        canAdd: isLocal || (isOnline && canAddOnlineSong && (hasOnlinePlaylists || canCreateOnline)) || isNavidrome,
+        // Local playlists accept any playable track (local, online, navidrome).
+        // Therefore, any applicable song can always be added to local playlists or a new local playlist.
+        canAdd: Boolean(song && !isStage && (isLocal || isOnline || isNavidrome)),
     };
 };
 
@@ -120,32 +120,38 @@ export const AddToPlaylistHost: React.FC<AddToPlaylistHostProps> = ({
     }, [shownSong?.id, needsNavidromePlaylists, refreshNavidromePlaylists]);
 
     const availablePlaylists = useMemo<PlaylistEntry[]>(() => {
+        const localEntries: PlaylistEntry[] = localPlaylists.map((playlist) => ({
+            id: `local:${playlist.id}`,
+            name: playlist.name,
+            description: `${playlist.songIds.length} ${t('playlist.tracks')}`,
+        }));
+
         if (isLocal) {
-            return localPlaylists.map((playlist) => ({
-                id: playlist.id,
-                name: playlist.name,
-                description: `${playlist.songIds.length} ${t('playlist.tracks')}`,
-            }));
+            return localEntries;
         }
 
         if (isOnline) {
-            return onlinePlaylists.map((playlist) => ({
-                id: String(playlist.id),
+            const onlineEntries: PlaylistEntry[] = onlinePlaylists.map((playlist) => ({
+                id: `online:${playlist.id}`,
                 name: playlist.name,
                 description: `${playlist.trackCount || 0} ${t('playlist.tracks')}`,
             }));
+            return [...localEntries, ...onlineEntries];
         }
 
         if (isNavidrome) {
-            return navidromePlaylists;
+            const navEntries: PlaylistEntry[] = navidromePlaylists.map((playlist) => ({
+                id: `navidrome:${playlist.id}`,
+                name: playlist.name,
+                description: playlist.description,
+            }));
+            return [...localEntries, ...navEntries];
         }
 
-        return [];
+        return localEntries;
     }, [isLocal, isOnline, isNavidrome, localPlaylists, navidromePlaylists, onlinePlaylists, t]);
 
-    const disabledReason = shown.isOnline && !shown.canAddOnlineSong
-        ? t('status.providerPlaylistMutationUnavailable', { provider: shown.onlineProviderLabel })
-        : (!shown.canAdd ? t('localMusic.noPlaylistsFound') : undefined);
+    const disabledReason = !shown.canAdd ? t('localMusic.noPlaylistsFound') : undefined;
 
     // A picker asked for a song that has nowhere to go, or whose playlists went under it (the
     // account signed out): closing beats leaving a picker up that cannot pick.
@@ -170,56 +176,63 @@ export const AddToPlaylistHost: React.FC<AddToPlaylistHostProps> = ({
                 title={t('localMusic.addToPlaylist')}
                 description={t('home.playlists') || 'Playlists'}
                 playlists={availablePlaylists}
-                onSelect={async (playlistId) => {
+                onSelect={async (playlistEntryId) => {
                     if (!currentSong) throw new Error('Selected playlist is unavailable');
-                    if (isLocal) {
-                        await onAddCurrentSongToLocalPlaylist(String(playlistId), currentSong);
+                    const entryId = String(playlistEntryId);
+
+                    if (entryId.startsWith('local:')) {
+                        const targetPlaylistId = entryId.slice('local:'.length);
+                        await onAddCurrentSongToLocalPlaylist(targetPlaylistId, currentSong);
                         return;
                     }
 
-                    if (isOnline) {
-                        const playlist = onlinePlaylists.find(item => String(item.id) === String(playlistId));
+                    if (entryId.startsWith('online:')) {
+                        const rawId = entryId.slice('online:'.length);
+                        const playlist = onlinePlaylists.find(item => String(item.id) === rawId);
                         if (!playlist) throw new Error('Selected playlist is unavailable');
                         await onAddCurrentSongToOnlinePlaylist(playlist, currentSong);
                         return;
                     }
 
-                    if (isNavidrome) {
-                        await onAddCurrentSongToNavidromePlaylist(String(playlistId), currentSong);
+                    if (entryId.startsWith('navidrome:')) {
+                        const rawId = entryId.slice('navidrome:'.length);
+                        await onAddCurrentSongToNavidromePlaylist(rawId, currentSong);
                         await refreshNavidromePlaylists();
+                        return;
                     }
+
+                    // Fallback
+                    if (isLocal) {
+                        await onAddCurrentSongToLocalPlaylist(entryId, currentSong);
+                        return;
+                    }
+                    if (isOnline) {
+                        const playlist = onlinePlaylists.find(item => String(item.id) === entryId);
+                        if (playlist) {
+                            await onAddCurrentSongToOnlinePlaylist(playlist, currentSong);
+                            return;
+                        }
+                    }
+                    await onAddCurrentSongToLocalPlaylist(entryId, currentSong);
                 }}
-                onCreate={(isLocal || isNavidrome || canCreateOnline) ? () => {
+                onCreate={() => {
                     setCreateFor(currentSong);
                     close();
-                } : undefined}
-                createLabel={t(isNavidrome ? 'navidrome.createPlaylist' : 'localMusic.createPlaylist')}
+                }}
+                createLabel={t('localMusic.createPlaylist')}
             />
 
             <TextInputDialog
                 isOpen={createFor !== null}
                 onClose={() => setCreateFor(null)}
                 isDaylight={isDaylight}
-                title={t(isNavidrome ? 'navidrome.createPlaylist' : 'localMusic.createPlaylist')}
+                title={t('localMusic.createPlaylist')}
                 description={t('localMusic.enterPlaylistName')}
                 placeholder={t('localMusic.enterPlaylistName')}
                 confirmLabel={t('options.save')}
                 onConfirm={async (name) => {
                     if (!currentSong) return;
-                    if (isLocal) {
-                        await onCreateCurrentLocalPlaylist(name, currentSong);
-                        return;
-                    }
-
-                    if (isOnline) {
-                        await onCreateCurrentOnlinePlaylist(name, currentSong);
-                        return;
-                    }
-
-                    if (isNavidrome) {
-                        await onCreateCurrentNavidromePlaylist(name, currentSong);
-                        await refreshNavidromePlaylists();
-                    }
+                    await onCreateCurrentLocalPlaylist(name, currentSong);
                 }}
             />
         </div>

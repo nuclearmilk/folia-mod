@@ -1,11 +1,16 @@
 import { motionValue } from 'framer-motion';
-import { ArrowUpRight, Pause, Play } from 'lucide-react';
+import { AnimatePresence } from 'framer-motion';
+import { ArrowUpRight, Menu, Pause, Play } from 'lucide-react';
+import { useContext, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import ProgressBar from '../../ProgressBar';
-import { PlayerState } from '../../../types';
+import { PlayerState, type UnifiedSong } from '../../../types';
 import { getPlaybackSongKey } from '../../../utils/appPlaybackGuards';
+import { LatticeSongActionsContext } from './LatticeSongActionsContext';
 import { useLatticeTransport } from './LatticeTransportContext';
 import type { LatticeSongTile } from './latticeModel';
+import { LatticeBilibiliPartsPopup } from './bilibili/LatticeBilibiliPartsPopup';
+import { useBilibiliParts } from './bilibili/useBilibiliParts';
 import LatticeChromeTime from './LatticeChromeTime';
 import LatticeExtraControls from './LatticeExtraControls';
 import './LatticeChrome.css';
@@ -44,11 +49,34 @@ export default function LatticePlaybackControls({
         ? playbackDuration
         : Math.max(0, tile.song.durationMs / 1000);
 
+    const targetSong = isCurrentSong ? currentSong : tile.song;
+    const { hasParts, title: videoTitle, tracks, currentCid } = useBilibiliParts(targetSong);
+    const [showPartsPopup, setShowPartsPopup] = useState(false);
+    const buttonRef = useRef<HTMLButtonElement>(null);
+    const songActions = useContext(LatticeSongActionsContext);
+
+    const handleTogglePopup = () => {
+        setShowPartsPopup(open => !open);
+    };
+
+    const handleSelectPart = (partSong: UnifiedSong) => {
+        if (songActions?.onPlaySong) {
+            songActions.onPlaySong(partSong);
+        } else {
+            onPlay({
+                ...tile,
+                song: partSong,
+            });
+        }
+    };
+
+    const isRevealed = revealed || showPartsPopup;
+
     return (
         <div
             // 思索靠这个属性认出整条控制条。类名会随样式重构改名，属性不会 —— 见 ponderSelectorContract。
             data-ponder="lattice-chrome"
-            className={`lattice-chrome ${revealed ? 'is-revealed' : ''}`}
+            className={`lattice-chrome ${isRevealed ? 'is-revealed' : ''}`}
             role="group"
             aria-label={t('home.latticePlaybackControls')}
         >
@@ -62,9 +90,35 @@ export default function LatticePlaybackControls({
                 >
                     {isPlaying ? <Pause fill="currentColor" /> : <Play fill="currentColor" />}
                 </button>
-                <div className="lattice-chrome-details" inert={!revealed} aria-hidden={!revealed}>
+                <div className="lattice-chrome-details" inert={!isRevealed} aria-hidden={!isRevealed}>
                     <LatticeExtraControls disabled={!canControlCurrent} />
                 </div>
+                {hasParts && (
+                    <div className="lattice-chrome-parts-anchor">
+                        <button
+                            ref={buttonRef}
+                            type="button"
+                            className={`lattice-secondary-action lattice-parts-button ${showPartsPopup ? 'is-active' : ''}`}
+                            onClick={handleTogglePopup}
+                            aria-label={`选择分P (${tracks.length}P)`}
+                            title={`选择分P (${tracks.length}P)`}
+                        >
+                            <Menu size={20} />
+                        </button>
+                        <AnimatePresence>
+                            {showPartsPopup && (
+                                <LatticeBilibiliPartsPopup
+                                    title={videoTitle}
+                                    tracks={tracks}
+                                    currentCid={currentCid}
+                                    anchorElement={buttonRef.current}
+                                    onSelectPart={handleSelectPart}
+                                    onClose={() => setShowPartsPopup(false)}
+                                />
+                            )}
+                        </AnimatePresence>
+                    </div>
+                )}
                 <LatticeChromeTime currentTime={canControlCurrent ? currentTime : idleTime} duration={duration} />
                 <button type="button" className="lattice-secondary-action" onClick={onOpenPlayer}
                     aria-label={t('home.latticeOpenPlayer')} title={t('home.latticeOpenPlayer')}>

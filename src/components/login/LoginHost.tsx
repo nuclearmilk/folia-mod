@@ -10,6 +10,7 @@ import { loginDoneLanding, loginDonePlays } from './done/loginDoneFrame';
 import { createLoginHostState } from './loginHostState';
 import { closeLoginWindow, loginHostMounted, setLoginLanding, useLoginWindowStore } from './loginWindowStore';
 import { orderRows } from './platformRows';
+import ErrorBoundary from '../shared/ErrorBoundary';
 import LoginScreen from './window/LoginScreen';
 
 // src/components/login/LoginHost.tsx
@@ -95,33 +96,35 @@ const LoginHost: React.FC<LoginHostProps> = ({ account }) => {
     }, [landing]);
 
     return (
-        <LoginScreen
-            isOpen={isOpen}
-            // 读到账号之后关窗是跳过动画：直接到结束，已经登录了。
-            onClose={() => {
-                host.doneEnded();
-                closeLoginWindow();
-            }}
-            origin={origin}
-            done={done}
-            onDoneLeave={closeLoginWindow}
-            onDoneEnd={host.doneEnded}
-            rows={rows}
-            activeProviderId={activeProviderId}
-            chosen={chosen}
-            login={shownLogin}
-            onChoose={host.choose}
-            onStart={() => void account.retryLogin()}
-            onSelectMethod={methodId => void account.selectLoginMethod(methodId)}
-            onReopenBrowser={() => void account.openLoginPage()}
-            onRestartService={() => void account.restartLocalService()}
-            onSwitch={host.switchToChosen}
-            onSignOut={host.signOutChosen}
-            buildReport={async () => {
-                const result = await account.buildLoginDiagnosticReport();
-                return result.status === 'ok' ? result.report : '';
-            }}
-        />
+        <ErrorBoundary name="LoginHost" resetKey={`${isOpen}:${requestId}`}>
+            <LoginScreen
+                isOpen={isOpen}
+                // 读到账号之后关窗是跳过动画：直接到结束，已经登录了。
+                onClose={() => {
+                    host.doneEnded();
+                    closeLoginWindow();
+                }}
+                origin={origin}
+                done={done}
+                onDoneLeave={closeLoginWindow}
+                onDoneEnd={host.doneEnded}
+                rows={rows}
+                activeProviderId={activeProviderId}
+                chosen={chosen}
+                login={shownLogin}
+                onChoose={host.choose}
+                onStart={() => void account.retryLogin()}
+                onSelectMethod={methodId => void account.selectLoginMethod(methodId)}
+                onReopenBrowser={() => void account.openLoginPage()}
+                onRestartService={() => void account.restartLocalService()}
+                onSwitch={host.switchToChosen}
+                onSignOut={host.signOutChosen}
+                buildReport={async () => {
+                    const result = await account.buildLoginDiagnosticReport();
+                    return result.status === 'ok' ? result.report : '';
+                }}
+            />
+        </ErrorBoundary>
     );
 };
 

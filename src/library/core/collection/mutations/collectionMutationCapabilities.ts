@@ -4,6 +4,7 @@ import type { LibraryCollectionDescriptor } from '../collection.contract';
 import type { CollectionResourceKind } from '../../shared/resource.contract';
 import type { LibraryCapability } from '../../shared/capability.contract';
 import type { LibraryMutationPort } from '../../shared/ports.contract';
+import { getPlaybackSongKey, isLocalPlaybackSong } from '../../../../utils/appPlaybackGuards';
 import type {
     CollectionMutationBranches,
     CollectionMutationCapabilities,
@@ -140,10 +141,13 @@ export const isSerializedRemoval = (kind: CollectionEntryRemovalKind | null): bo
     kind === 'daily-dislike' || kind === 'navidrome-playlist'
 );
 
-/** 本地歌曲在歌单里的 id：与 localPlaylistService 按 songId 删除的语义一致。 */
-export const localPlaylistSongIdOf = (track: SongResult): string => (
-    (track as UnifiedSong).localRef?.songId || String(track.id)
-);
+/** 本地歌单里的歌曲标识：本地歌曲使用 localRef.songId，跨平台歌曲使用 getPlaybackSongKey。 */
+export const localPlaylistSongIdOf = (track: SongResult): string => {
+    if (isLocalPlaybackSong(track)) {
+        return track.localRef?.songId || String(track.id);
+    }
+    return getPlaybackSongKey(track);
+};
 
 /** 「匹配在线信息」只对带本地引用的歌有意义。 */
 export const localSongIdOf = (track: SongResult): string | null => (track as UnifiedSong).localRef?.songId ?? null;

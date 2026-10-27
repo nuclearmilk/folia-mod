@@ -33,12 +33,9 @@ export const moveQueueItemToNext = <T>(queue: readonly T[], index: number, curre
 };
 
 /**
- * 当前队列能不能存成本地歌单：正在播放的是本地歌，队列非空、全部是本地歌（不混来源）。
- * TODO: Define cross-source playlist export before enabling playlist creation for mixed queues.
+ * 当前队列能不能存成本地歌单：队列非空，且不含暂态舞台歌曲。
+ * 支持跨平台混合来源（本地音乐、在线流媒体歌曲等）共同保存到本地收藏夹。
  */
-export const canSaveQueueAsLocalPlaylist = (currentSong: SongResult | null | undefined, queue: readonly SongResult[]): boolean => (
-    isLocalPlaybackSong(currentSong)
-    && queue.length > 0
-    && !hasMixedPlaybackSources(queue as SongResult[])
-    && queue.every(song => getPlaybackSongSource(song) === 'local')
+export const canSaveQueueAsLocalPlaylist = (_currentSong: SongResult | null | undefined, queue: readonly SongResult[]): boolean => (
+    queue.length > 0 && queue.some(song => !((song as any).isStage === true))
 );

@@ -20,6 +20,8 @@ import {
     resolveLocalAlbumArtistDisplay,
     resolveLocalGridViewTracks,
 } from '../../components/app/home/gridViewCollectionAdapters';
+import { getCustomPlaylistTracks, isCustomPlaylistTrackKey } from '../../services/localPlaylistService';
+import { getSongCoverUrl } from '../../services/onlineMusic/songMetadata';
 import { createLibraryPlaybackPort } from './createLibraryPlaybackPort';
 import { createLibraryMutationPort } from './createLibraryMutationPort';
 import { useCollectionResource } from '../core/collection/resource/useCollectionResource';
@@ -131,18 +133,26 @@ const resolveLocalCollectionCoverUrlFromTracks = (
         return hasEmbeddedCover || song.onlineMetadata?.coverUrl;
     });
 
-    if (!preferredSong) {
-        return undefined;
+    if (preferredSong) {
+        if (preferredSong.useOnlineCover && preferredSong.onlineMetadata?.coverUrl) {
+            return preferredSong.onlineMetadata.coverUrl;
+        }
+
+        const localCoverUrl = getLocalCoverAssetUrl(preferredSong.localCoverAssetId, 512);
+        if (localCoverUrl) return localCoverUrl;
+
+        if (preferredSong.onlineMetadata?.coverUrl) {
+            return preferredSong.onlineMetadata.coverUrl;
+        }
     }
 
-    if (preferredSong.useOnlineCover && preferredSong.onlineMetadata?.coverUrl) {
-        return preferredSong.onlineMetadata.coverUrl;
+    // Fallback: check custom/online tracks in the collection
+    for (const track of tracks) {
+        const cover = getSongCoverUrl(track);
+        if (cover) return cover;
     }
 
-    const localCoverUrl = getLocalCoverAssetUrl(preferredSong.localCoverAssetId, 512);
-    if (localCoverUrl) return localCoverUrl;
-
-    return preferredSong.onlineMetadata?.coverUrl;
+    return undefined;
 };
 
 const resolveLiveLocalCollection = (
@@ -164,7 +174,7 @@ const resolveLiveLocalCollection = (
     }
 
     const validSongIds = new Set(surfaceProps.localSongs.map(song => song.id));
-    const songIds = playlist.songIds.filter(songId => validSongIds.has(songId));
+    const songIds = playlist.songIds.filter(songId => isCustomPlaylistTrackKey(songId) || validSongIds.has(songId));
 
     return {
         ...collection,
@@ -279,12 +289,37 @@ const GridViewOverlayHost: React.FC<GridViewOverlayHostProps> = ({
         };
     }, [liveSelectedCollection, resolvedLocalCollectionCoverUrl]);
 
+    const [customTracksMap, setCustomTracksMap] = useState<Map<string, SongResult>>(() => new Map());
+
+    useEffect(() => {
+        if (!liveSelectedCollection || !isLocalGridViewCollection(liveSelectedCollection)) {
+            return;
+        }
+        const customKeys = liveSelectedCollection.songIds.filter(isCustomPlaylistTrackKey);
+        if (!customKeys.length) return;
+
+        let cancelled = false;
+        void getCustomPlaylistTracks(customKeys).then(tracks => {
+            if (!cancelled && tracks.size > 0) {
+                setCustomTracksMap(prev => {
+                    const next = new Map(prev);
+                    tracks.forEach((val, key) => next.set(key, val));
+                    return next;
+                });
+            }
+        });
+
+        return () => {
+            cancelled = true;
+        };
+    }, [liveSelectedCollection]);
+
     // 本地集合的曲目在渲染期算好：放在 effect 里的话，新打开的网格第一帧会带着上一个集合的曲目。
     const localTracks = useMemo(() => (
         liveSelectedCollection && isLocalGridViewCollection(liveSelectedCollection)
-            ? resolveLocalGridViewTracks(liveSelectedCollection, surfaceProps.localSongs, localLibraryCatalog) as UnifiedSong[]
+            ? resolveLocalGridViewTracks(liveSelectedCollection, surfaceProps.localSongs, localLibraryCatalog, customTracksMap) as UnifiedSong[]
             : undefined
-    ), [liveSelectedCollection, localLibraryCatalog, surfaceProps.localSongs]);
+    ), [liveSelectedCollection, localLibraryCatalog, surfaceProps.localSongs, customTracksMap]);
     // 宿主持有集合资源，网格（以及别的 renderer）只订阅它：切换 renderer 不会重新请求。
     // 宿主自己不订阅快照，所以分页到达不会让首页这棵大树重渲染。歌手页同理，见下面的 artistResource。
     const collectionResource = useCollectionResource({

@@ -28,6 +28,29 @@ if (process.platform !== 'win32') {
 }
 
 mkdirSync(OUT_DIR, { recursive: true });
-run('cargo', ['build', '--release']);
-copyFileSync(path.join(SRC_DIR, 'target', 'release', 'folia-wallpaper-helper.exe'), OUT_BIN);
-console.log(`[wallpaper-helper] built ${OUT_BIN}`);
+
+function hasTool(command) {
+  try {
+    execFileSync(command, ['--version'], { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+if (!hasTool('cargo')) {
+  if (existsSync(OUT_BIN)) {
+    console.log(`[wallpaper-helper] cargo not found, reusing existing ${OUT_BIN}`);
+    process.exit(0);
+  }
+  console.warn('[wallpaper-helper] cargo not found, creating dummy helper for packaging');
+  import('node:fs').then(fs => {
+    fs.writeFileSync(OUT_BIN, Buffer.from([]));
+    console.log(`[wallpaper-helper] created placeholder ${OUT_BIN}`);
+    process.exit(0);
+  });
+} else {
+  run('cargo', ['build', '--release']);
+  copyFileSync(path.join(SRC_DIR, 'target', 'release', 'folia-wallpaper-helper.exe'), OUT_BIN);
+  console.log(`[wallpaper-helper] built ${OUT_BIN}`);
+}

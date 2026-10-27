@@ -61,16 +61,42 @@ export const PlatformColumn: React.FC<PlatformColumnProps> = ({ rows, chosenId, 
     const [box, setBox] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
     // 列表的哪一头后面还有行：那一头淡出。
     const [more, setMore] = useState({ before: false, after: false });
-    const rowOf = (providerId: OnlineProviderId | null | undefined) => (
-        providerId ? listRef.current?.querySelector<HTMLElement>(`[data-row="${CSS.escape(providerId)}"]`) ?? null : null
-    );
+    const rowOf = (providerId: OnlineProviderId | null | undefined) => {
+        if (!providerId || !listRef.current) return null;
+        try {
+            const escaped = typeof CSS !== 'undefined' && typeof CSS.escape === 'function' ? CSS.escape(providerId) : providerId;
+            return listRef.current.querySelector<HTMLElement>(`[data-row="${escaped}"]`) ?? null;
+        } catch {
+            return null;
+        }
+    };
 
-    // 高亮那一块的位置和大小，每次画完从它所在的行量一遍（行的宽度跟着名字、头像和语言变）；数没变就不动。
+    // 高亮那一块的位置和大小：指针移动或布局切换时量一遍。使用四舍五入与阈值比较，杜绝亚像素浮点抖动引发无限重绘。
     useLayoutEffect(() => {
         const row = rowOf(lit?.providerId);
-        const next = row ? { x: row.offsetLeft, y: row.offsetTop, w: row.offsetWidth, h: row.offsetHeight } : null;
-        setBox(current => (current?.x === next?.x && current?.y === next?.y && current?.w === next?.w && current?.h === next?.h ? current : next));
-    });
+        if (!row) {
+            setBox(null);
+            return;
+        }
+        const next = {
+            x: Math.round(row.offsetLeft),
+            y: Math.round(row.offsetTop),
+            w: Math.round(row.offsetWidth),
+            h: Math.round(row.offsetHeight),
+        };
+        setBox(current => {
+            if (
+                current &&
+                Math.abs(current.x - next.x) < 1 &&
+                Math.abs(current.y - next.y) < 1 &&
+                Math.abs(current.w - next.w) < 1 &&
+                Math.abs(current.h - next.h) < 1
+            ) {
+                return current;
+            }
+            return next;
+        });
+    }, [lit?.providerId, lie, shown.length]);
 
     // 选中的行换了，把它滚进来。指针指着的行不滚：列表不在指针底下自己动，指针移开也不跳回去。
     useLayoutEffect(() => {

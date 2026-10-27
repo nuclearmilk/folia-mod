@@ -403,18 +403,15 @@ export function useLibraryPlaybackController({
             throw new Error('Playlist name is empty');
         }
 
-        // TODO: Define cross-source playlist export before allowing mixed queues to be saved.
-        if (hasMixedPlaybackSources(playQueue)) {
-            throw new Error('Mixed-source queues cannot be saved as playlists yet');
+        if (!playQueue.length) {
+            throw new Error('No songs in queue');
         }
 
-        const queueSongs = playQueue
-            .map(resolveLocalSongRecord)
-            .filter((song): song is LocalSong => Boolean(song?.id));
-
-        if (!queueSongs.length) {
-            throw new Error('No local songs in queue');
-        }
+        // Pass either LocalSong or SongResult directly; createLocalPlaylist handles caching and key generation.
+        const queueSongs = playQueue.map(song => {
+            const localSong = resolveLocalSongRecord(song);
+            return (isLocalPlaybackSong(song) && localSong) ? localSong : song;
+        });
 
         await createLocalPlaylist(trimmedName, queueSongs);
         await loadLocalPlaylists();
@@ -424,11 +421,9 @@ export function useLibraryPlaybackController({
     // current song.
     const addCurrentSongToLocalPlaylist = useCallback(async (playlistId: string, song: SongResult) => {
         const localSong = resolveLocalSongRecord(song);
-        if (!isLocalPlaybackSong(song) || !localSong) {
-            throw new Error('Current song is not local');
-        }
+        const songToAdd = (isLocalPlaybackSong(song) && localSong) ? localSong : song;
 
-        await addSongsToLocalPlaylist(playlistId, [localSong]);
+        await addSongsToLocalPlaylist(playlistId, [songToAdd]);
         await loadLocalPlaylists();
     }, [loadLocalPlaylists, resolveLocalSongRecord]);
 
@@ -439,11 +434,9 @@ export function useLibraryPlaybackController({
         }
 
         const localSong = resolveLocalSongRecord(song);
-        if (!isLocalPlaybackSong(song) || !localSong) {
-            throw new Error('Current song is not local');
-        }
+        const songToAdd = (isLocalPlaybackSong(song) && localSong) ? localSong : song;
 
-        await createLocalPlaylist(trimmedName, [localSong]);
+        await createLocalPlaylist(trimmedName, [songToAdd]);
         await loadLocalPlaylists();
         setStatusMsg({ type: 'success', text: t('status.playlistUpdated') || '' });
     }, [loadLocalPlaylists, resolveLocalSongRecord, setStatusMsg, t]);
