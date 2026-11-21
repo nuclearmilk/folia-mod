@@ -16,6 +16,7 @@ vi.mock('@/services/onlineMusic/netease/netease', async importOriginal => ({
         normalizeSongResult: vi.fn((raw: unknown) => raw),
         getSongUrl: vi.fn(),
         getLyric: vi.fn(),
+        getChorus: vi.fn(),
         getUnavailableSongReplacement: vi.fn(),
         cloudSearch: vi.fn(),
         getSongDetail: vi.fn(),
@@ -110,6 +111,36 @@ describe('neteaseProvider', () => {
                     romanization: 'Kimi no koto ga suki',
                 }],
             },
+        });
+    });
+
+    it('fetches lyrics and chorus ranges concurrently', async () => {
+        let resolveLyric!: (value: unknown) => void;
+        let resolveChorus!: (value: unknown) => void;
+        const concurrentSong: UnifiedSong = {
+            ...song,
+            id: 4242,
+            sourceRef: { kind: 'online', providerId: 'netease', mediaId: '4242' },
+        };
+
+        vi.mocked(parseLyricsAsync).mockResolvedValue({
+            lines: [{ startTime: 1, endTime: 3, fullText: 'line', words: [] }],
+            isWordByWord: false,
+        });
+        vi.mocked(neteaseApi.getLyric).mockReturnValue(new Promise(resolve => { resolveLyric = resolve; }) as any);
+        vi.mocked(neteaseApi.getChorus).mockReturnValue(new Promise(resolve => { resolveChorus = resolve; }) as any);
+
+        const pending = neteaseProvider.lyrics!.getLyrics(concurrentSong);
+        await vi.waitFor(() => {
+            expect(neteaseApi.getLyric).toHaveBeenCalledWith(4242);
+            expect(neteaseApi.getChorus).toHaveBeenCalledWith(4242);
+        });
+
+        resolveLyric({ lrc: { lyric: '[00:01.00]line' } });
+        resolveChorus({ code: 200, chorus: [{ startTime: 1000, endTime: 3000 }] });
+
+        await expect(pending).resolves.toMatchObject({
+            chorusRanges: [{ startTime: 1, endTime: 3 }],
         });
     });
 

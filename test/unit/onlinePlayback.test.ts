@@ -638,3 +638,54 @@ describe('lyrics a provider keeps as its own timing', () => {
         expect(autoMatchMock).toHaveBeenCalledWith('Song', '', 1000, expect.objectContaining({ keepOwnWordTiming: false }));
     });
 });
+
+describe('cached lyrics with autoUseBestLyric enabled', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        lyricSettings.autoUseBestLyric = true;
+        lyricSettings.preferredAlternativeLyricSource = 'qq';
+        lyricSettings.keepProviderWordTiming = true;
+        prefersOwnWordByWordMock.mockReturnValue(false);
+        loadLyricsStateMock.mockResolvedValue(null);
+    });
+
+    it('shows cached lyrics and releases playback immediately without calling omni.getLyrics, while allowing background upgrade', async () => {
+        const cached = {
+            lines: [{ startTime: 0, endTime: 1, fullText: 'cached line', words: [] }],
+            isWordByWord: false,
+        };
+        const upgraded = {
+            lines: [{ startTime: 0, endTime: 1, fullText: 'upgraded line', words: [{ text: 'upgraded line', startTime: 0, endTime: 1 }] }],
+            isWordByWord: true,
+        };
+        songCacheMock.mockResolvedValue(cached);
+
+        let resolveMatch!: (value: unknown) => void;
+        autoMatchMock.mockReturnValue(new Promise(resolve => {
+            resolveMatch = resolve;
+        }));
+
+        const onLyrics = vi.fn();
+        const onDone = vi.fn();
+        const pending = loadOnlineSongLyrics(song, null, null, {
+            isCurrent: () => true,
+            onLyrics,
+            onDone,
+        });
+
+        await vi.waitFor(() => expect(autoMatchMock).toHaveBeenCalled());
+
+        expect(lyricsMock).not.toHaveBeenCalled();
+        expect(onLyrics).toHaveBeenCalledWith(cached);
+        expect(onDone).toHaveBeenCalled();
+
+        resolveMatch({ lyrics: upgraded, source: 'qq', id: 'qq-1' });
+        await pending;
+
+        expect(onLyrics).toHaveBeenLastCalledWith(upgraded);
+        expect(saveLyricsStateMock).toHaveBeenCalledWith(song, expect.objectContaining({
+            hasOnlineOverride: true,
+            matchedLyricsSource: 'qq',
+        }));
+    });
+});

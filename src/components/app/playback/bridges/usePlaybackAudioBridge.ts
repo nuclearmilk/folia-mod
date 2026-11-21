@@ -59,7 +59,7 @@ const BALANCE_POLL_MS = 500;
 export function usePlaybackAudioBridge({
     audioRef,
     localSongs,
-    isLyricsLoading,
+    isLyricsLoading: _isLyricsLoading,
     shouldAutoPlayRef,
     audioContextRef,
     analyserRef,
@@ -352,7 +352,8 @@ export function usePlaybackAudioBridge({
             // source runs this effect again, and that run is the one meant to start it.
             if (audioRef.current.error) return;
 
-            if (shouldAutoPlayRef.current && !isLyricsLoading) {
+            // 先播音频、后加载歌词：不再用 !isLyricsLoading 卡住起播，保留 isAutoplayHeld 给 Automix 混音过渡。
+            if (shouldAutoPlayRef.current) {
                 // The deck has its source and is buffering, but its blend is not due yet. Bail
                 // WITHOUT spending the intent - this effect runs again when the hold lifts, and
                 // that run is the one meant to start it.
@@ -413,7 +414,7 @@ export function usePlaybackAudioBridge({
                 }
             }
         }
-    }, [audioRef, audioSrc, getTargetPlaybackVolume, isAutoplayHeld, isLyricsLoading, setPlayerState, setStatusMsg, setupAudioAnalyzer, shouldAutoPlayRef, suppressAutoplayRef, syncOutputGain, t]);
+    }, [audioRef, audioSrc, getTargetPlaybackVolume, isAutoplayHeld, setPlayerState, setStatusMsg, setupAudioAnalyzer, shouldAutoPlayRef, suppressAutoplayRef, syncOutputGain, t]);
 
     // Tells this bridge that the active deck ALREADY holds `src` and is sounding it, so the next time
     // `audioSrc` settles on that value the reload effect above treats it as a no-op instead of calling

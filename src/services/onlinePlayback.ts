@@ -218,7 +218,7 @@ export async function loadOnlineSongLyrics(
             keepOwn: lyricSettings.keepProviderWordTiming,
         }, lyricSettings.preferredAlternativeLyricSource);
     };
-    if (preferredCachedLyrics && (hasAuthoritativeLyricsSelection || !initialSettingsLyricSettings.autoUseBestLyric)) {
+    if (preferredCachedLyrics && (hasAuthoritativeLyricsSelection || !initialSettingsLyricSettings.autoUseBestLyric || keepsOwnWordByWord(preferredCachedLyrics))) {
         const cachedText = preferredCachedLyrics.lines.map(line => line.fullText).join('\n');
         onPureMusicChange?.(resolveOnlineLyricsPureMusic(onlineLyricsState, cachedText));
         onLyrics(preferredCachedLyrics);
@@ -257,6 +257,7 @@ export async function loadOnlineSongLyrics(
         }
     }
 
+    const cachedText = preferredCachedLyrics?.lines.map(line => line.fullText).join('\n') ?? '';
     const processed = prefetched?.lyrics
         ? {
             mainLrc: prefetched.lyricRaw?.mainLrc ?? null,
@@ -266,17 +267,26 @@ export async function loadOnlineSongLyrics(
             lyrics: prefetched.lyrics,
             chorusRanges: [],
           }
-        : await (async () => {
-            const result = await omni.getLyrics(song, { userId });
-            return {
-                mainLrc: result.mainText ?? null,
-                yrcLrc: result.wordByWordText ?? null,
-                transLrc: result.translationText ?? null,
-                isPureMusic: result.isPureMusic,
-                lyrics: result.lyrics,
-                chorusRanges: result.chorusRanges || [],
-            };
-        })();
+        : preferredCachedLyrics
+            ? {
+                mainLrc: null,
+                yrcLrc: null,
+                transLrc: null,
+                isPureMusic: resolveOnlineLyricsPureMusic(onlineLyricsState, cachedText),
+                lyrics: preferredCachedLyrics,
+                chorusRanges: [],
+              }
+            : await (async () => {
+                const result = await omni.getLyrics(song, { userId });
+                return {
+                    mainLrc: result.mainText ?? null,
+                    yrcLrc: result.wordByWordText ?? null,
+                    transLrc: result.translationText ?? null,
+                    isPureMusic: result.isPureMusic,
+                    lyrics: result.lyrics,
+                    chorusRanges: result.chorusRanges || [],
+                };
+            })();
     const parsedLyrics = processed.lyrics;
 
     if (!isCurrent()) return;

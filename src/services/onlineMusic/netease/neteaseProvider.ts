@@ -340,8 +340,12 @@ const getLyrics = async (
     song: SongResult,
     context?: { userId?: MediaId | null },
 ): Promise<ProviderLyricsResult> => {
+    const chorusPromise = getNeteaseChorusRanges(song.id).catch(() => []);
     if (song.sourceRef?.kind === 'online' && song.sourceRef.variant === 'cloud' && context?.userId != null) {
-        const response = await neteaseApi.getCloudLyric(toNeteaseId(context.userId), toNeteaseId(song.id));
+        const [response, chorusRanges] = await Promise.all([
+            neteaseApi.getCloudLyric(toNeteaseId(context.userId), toNeteaseId(song.id)),
+            chorusPromise,
+        ]);
         const mainText = extractCloudLyricText(response);
         const processed = await processNeteaseLyrics({ type: 'netease', lrc: { lyric: mainText } });
         return {
@@ -351,11 +355,14 @@ const getLyrics = async (
             translationText: null,
             romanizationText: null,
             isPureMusic: processed.isPureMusic,
-            chorusRanges: await getNeteaseChorusRanges(song.id),
+            chorusRanges,
         };
     }
 
-    const response = await neteaseApi.getLyric(toNeteaseId(song.id));
+    const [response, chorusRanges] = await Promise.all([
+        neteaseApi.getLyric(toNeteaseId(song.id)),
+        chorusPromise,
+    ]);
     const processed = await processNeteaseLyrics(
         typeof neteaseApi.getProcessedLyricPayload === 'function'
             ? neteaseApi.getProcessedLyricPayload(response)
@@ -368,7 +375,7 @@ const getLyrics = async (
         translationText: processed.transLrc,
         romanizationText: processed.romanizationLrc,
         isPureMusic: processed.isPureMusic,
-        chorusRanges: await getNeteaseChorusRanges(song.id),
+        chorusRanges,
     };
 };
 
