@@ -33,13 +33,23 @@ exports.default = async (context) => {
   // Steam Audio, the scene engine's room sound (electron/acoustics/): every desktop platform's library,
   // from the pinned official SDK zip; extraResources takes this target's build/steam-audio/${os}-${arch}.
   // A target the SDK has no library for (Linux arm64) skips the download: the app runs without room sound.
-  const { prepareSteamAudio, hasSteamAudioFor } = await import("./fetchSteamAudio.mjs");
-  if (hasSteamAudioFor(context.electronPlatformName, arch)) await prepareSteamAudio();
-  else console.log(`[steam-audio] no library for ${context.electronPlatformName}-${arch}, skipped`);
+  try {
+    const { prepareSteamAudio, hasSteamAudioFor } = await import("./fetchSteamAudio.mjs");
+    if (hasSteamAudioFor(context.electronPlatformName, arch)) await prepareSteamAudio();
+    else console.log(`[steam-audio] no library for ${context.electronPlatformName}-${arch}, skipped`);
+  } catch (err) {
+    if (process.env.CI) throw err;
+    console.warn('[beforePack] Optional Steam Audio fetch skipped or failed:', err.message);
+  }
   if (context.electronPlatformName === 'win32') {
     // The Apple Music WebView2 host (electron/appleMusic/windows), compiled with MSBuild.
-    const { prepareWindowsCompanion } = require('../electron/appleMusic/windows/prepareBundle.cjs');
-    prepareWindowsCompanion({ arch, projectRoot: context.packager.projectDir });
+    try {
+      const { prepareWindowsCompanion } = require('../electron/appleMusic/windows/prepareBundle.cjs');
+      prepareWindowsCompanion({ arch, projectRoot: context.packager.projectDir });
+    } catch (err) {
+      if (process.env.CI) throw err;
+      console.warn('[beforePack] Optional Windows Apple Music companion build skipped or failed:', err.message);
+    }
   }
   if (context.electronPlatformName === 'darwin') {
     const { prepareMacCompanion } = require('../electron/appleMusic/macos/prepareBundle.cjs');

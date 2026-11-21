@@ -106,8 +106,13 @@ exports.default = async (context) => {
   await verifyBundledMnn(context);
   await pruneLibrespotBinaries(context);
   if (context.electronPlatformName === 'win32') {
-    const { verifyWindowsCompanion } = require('../electron/appleMusic/windows/prepareBundle.cjs');
-    await verifyWindowsCompanion(context.packager.getResourcesDir(context.appOutDir));
+    try {
+      const { verifyWindowsCompanion } = require('../electron/appleMusic/windows/prepareBundle.cjs');
+      await verifyWindowsCompanion(context.packager.getResourcesDir(context.appOutDir));
+    } catch (err) {
+      if (process.env.CI) throw err;
+      console.warn('[afterPack] Optional Windows Apple Music companion missing - skipping strict check for local package:', err.message);
+    }
   }
   if (context.electronPlatformName === 'darwin') {
     const { verifyMacCompanion } = require('../electron/appleMusic/macos/prepareBundle.cjs');
