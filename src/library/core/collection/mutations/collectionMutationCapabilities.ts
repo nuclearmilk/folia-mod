@@ -51,6 +51,7 @@ export const resolveCollectionMutationBranches = (input: CollectionMutationBranc
     const isLocalFolderCollection = Boolean(local && local.type === 'folder' && !local.isVirtual);
     const isLocalAllSongsCollection = Boolean(local && local.type === 'folder' && local.isVirtual);
     const isLocalPlaylistCollection = Boolean(local && local.type === 'playlist' && local.playlistId && !local.isVirtual);
+    const isLocalFavoritePlaylistCollection = Boolean(local && local.type === 'playlist' && local.playlistId && local.isVirtual);
     const isLocalEntityCollection = Boolean(local && local.entityId);
     const isNavidromePlaylistCollection = Boolean(navidrome && navidrome.type === 'playlist' && navidrome.editable);
     const canAddNavidromeToPlaylist = Boolean(
@@ -82,6 +83,7 @@ export const resolveCollectionMutationBranches = (input: CollectionMutationBranc
         // 管理每日推荐就是逐首「不喜欢」：provider 有 dislikeSong 才给编辑（有的平台是拉进黑名单、没有替换曲）。
         || (isDailyRecommendationsCollection && !input.dailyDate && !input.dailyStyleShown && input.canDislikeCollectionSongs)
         || isLocalPlaylistCollection
+        || isLocalFavoritePlaylistCollection
         || isNavidromePlaylistCollection,
     );
 
@@ -101,6 +103,7 @@ export const resolveCollectionMutationBranches = (input: CollectionMutationBranc
         isLocalFolderCollection,
         isLocalAllSongsCollection,
         isLocalPlaylistCollection,
+        isLocalFavoritePlaylistCollection,
         isLocalEntityCollection,
         isNavidromePlaylistCollection,
         isCloudDrive,
@@ -130,7 +133,9 @@ export const resolveEntryRemovalKind = (
         // 看历史日期时没有编辑开关（canEditPlaylist 为假），也就删不了。
         return branches.canEditPlaylist ? 'daily-dislike' : null;
     }
-    if (branches.isLocalPlaylistCollection) return port.local?.removePlaylistSongs ? 'local-playlist' : null;
+    if (branches.isLocalPlaylistCollection || branches.isLocalFavoritePlaylistCollection) {
+        return port.local?.removePlaylistSongs ? 'local-playlist' : null;
+    }
     if (branches.isNavidromePlaylistCollection) return port.navidrome?.removePlaylistSongs ? 'navidrome-playlist' : null;
     if (branches.canEditOwnedPlaylist || branches.canEditProviderPlaylist) return 'online-playlist';
     return null;

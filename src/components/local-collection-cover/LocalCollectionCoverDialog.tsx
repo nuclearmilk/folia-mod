@@ -8,6 +8,7 @@ import {
     resolveLocalCollectionPosterFolder,
     resolveLocalSongCoverCandidates,
     type LocalCollectionCoverOrigin,
+    type LocalCollectionCoverSongEntry,
 } from '../../library/core/collection/cover/localCollectionCover';
 import { localCollectionCovers } from '../../library/core/collection/cover/localCollectionCovers.service';
 import {
@@ -34,8 +35,10 @@ type PosterState = { status: 'checking' } | LocalFolderPosterLookup;
 
 type LocalCollectionCoverDialogProps = {
     collection: LocalGridViewCollectionDescriptor;
-    /** 集合里的歌，按集合的顺序。 */
+    /** 集合里的本地歌曲，按集合的顺序。 */
     songs: LocalSong[];
+    /** 包含本地与混合歌单跨平台曲目的封面候选列表（未传时退回 songs）。 */
+    coverSongs?: readonly LocalCollectionCoverSongEntry[];
     isDaylight: boolean;
     onClose: () => void;
 };
@@ -46,12 +49,16 @@ const KIND_KEYS: Record<string, string> = {
     playlist: 'localCollectionCover.kindPlaylist',
 };
 
-const LocalCollectionCoverDialog: React.FC<LocalCollectionCoverDialogProps> = ({ collection, songs, isDaylight, onClose }) => {
+const LocalCollectionCoverDialog: React.FC<LocalCollectionCoverDialogProps> = ({ collection, songs, coverSongs, isDaylight, onClose }) => {
     const { t } = useTranslation();
+    const effectiveCoverSongs = coverSongs ?? songs;
     const coverKey = localCollectionCoverKey(collection);
     const overrides = useLocalCollectionCoverUrls();
     const customCoverUrl = coverKey ? overrides.get(coverKey) : undefined;
-    const automaticCoverUrl = useMemo(() => getLocalCoverUrl(songs, getLocalCoverAssetUrl), [songs]);
+    const automaticCoverUrl = useMemo(() => (
+        getLocalCoverUrl(songs, getLocalCoverAssetUrl)
+        ?? effectiveCoverSongs.map(song => resolveLocalSongCoverCandidates(song, getLocalCoverAssetUrl, 512)[0]).find(Boolean)
+    ), [effectiveCoverSongs, songs]);
     const previewUrl = customCoverUrl ?? automaticCoverUrl;
     const posterFolder = useMemo(() => resolveLocalCollectionPosterFolder(collection, songs), [collection, songs]);
     const [poster, setPoster] = useState<PosterState | null>(posterFolder ? { status: 'checking' } : null);
@@ -195,7 +202,7 @@ const LocalCollectionCoverDialog: React.FC<LocalCollectionCoverDialogProps> = ({
                 />
             </div>
             <LocalCollectionCoverSongPicks
-                songs={songs}
+                songs={effectiveCoverSongs}
                 disabled={busy}
                 onPick={song => void apply('song', () => loadLocalSongCoverBlob(
                     resolveLocalSongCoverCandidates(song, getLocalCoverAssetUrl),

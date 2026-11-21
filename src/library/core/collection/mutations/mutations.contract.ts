@@ -37,6 +37,7 @@ export type CollectionMutationBranches = {
     isLocalFolderCollection: boolean;
     isLocalAllSongsCollection: boolean;
     isLocalPlaylistCollection: boolean;
+    isLocalFavoritePlaylistCollection: boolean;
     isLocalEntityCollection: boolean;
     isNavidromePlaylistCollection: boolean;
     isCloudDrive: boolean;

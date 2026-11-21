@@ -312,6 +312,30 @@ describe('removing an entry from a local playlist', () => {
         expect(await pending).toEqual({ ok: true });
         expect(ids(second.getSnapshot().tracks)).toEqual(['local-b', 'local-c']);
     });
+
+    it('allows removing online tracks from the local Liked Songs (isVirtual) playlist', async () => {
+        const favoritePlaylist: LocalGridViewCollectionDescriptor = {
+            source: 'local', id: 'playlist-pl-fav', name: 'Liked Songs', type: 'playlist', songIds: [], playlistId: 'pl-fav', isVirtual: true,
+        };
+        const tracks = [{
+            ...onlineSong('123'),
+            sourceRef: { kind: 'online', providerId: 'netease', mediaId: '123' },
+        } as SongResult, localSong('b')];
+        const resource = createStaticCollectionResource('k-fav', tracks);
+        const { controller, port } = setup({ descriptor: favoritePlaylist, resource });
+
+        expect(controller.getSnapshot().capabilities.editCollection.supported).toBe(true);
+        expect(controller.getSnapshot().capabilities.removeEntry.supported).toBe(true);
+        expect(controller.getSnapshot().capabilities.rename.supported).toBe(false);
+        expect(controller.getSnapshot().capabilities.deleteCollection.supported).toBe(false);
+        expect(controller.getSnapshot().capabilities.reorderPlaylist.supported).toBe(false);
+
+        expect(await controller.removeEntry(entryIn(resource, 0))).toEqual({ ok: true });
+        expect(port.local.removePlaylistSongs).toHaveBeenCalledTimes(1);
+        expect(port.local.removePlaylistSongs).toHaveBeenCalledWith('pl-fav', ['online:netease:123']);
+        expect(ids(resource.getSnapshot().tracks)).toEqual(['local-b']);
+        expect(port.local.refresh).toHaveBeenCalledTimes(1);
+    });
 });
 
 describe('removing an entry from a Navidrome playlist', () => {

@@ -202,6 +202,19 @@ describe('poster.png folder and song cover picks', () => {
             { songId: 's4', title: 'Title s4', coverUrl: 'https://img/o.jpg', songCount: 1 },
         ]);
     });
+
+    it('includes mixed/online tracks with coverUrl and deduplicates identical remote covers', () => {
+        const picks = buildLocalSongCoverPicks([
+            { id: 'online:netease:1', title: 'Netease One', coverUrl: 'https://img/n1.jpg' },
+            { id: 'online:netease:2', title: 'Netease Same', coverUrl: 'https://img/n1.jpg' },
+            { id: 'online:netease:3', title: 'No Cover' },
+            song('s1', 'A', { localCoverAssetId: 'c1' }),
+        ], assetUrl, 256);
+        expect(picks).toEqual([
+            { songId: 'online:netease:1', title: 'Netease One', coverUrl: 'https://img/n1.jpg', songCount: 2 },
+            { songId: 's1', title: 'Title s1', coverUrl: 'asset://c1?size=256', songCount: 1 },
+        ]);
+    });
 });
 
 const memoryPersistence = (initial: LocalCollectionCoverRecord[] = []) => {

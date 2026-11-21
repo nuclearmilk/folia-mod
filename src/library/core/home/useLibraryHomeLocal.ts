@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { LocalLibraryGroup, LocalPlaylist, LocalSong } from '../../../types';
 import type { LibraryDirectoryBatchConfig, LibraryDirectoryBatchController, LibraryDirectoryNode, LibraryDirectorySelectionType } from '../directory/directory.contract';
@@ -14,7 +14,7 @@ import {
     type LocalHomeSectionKey,
 } from './localHomeModel';
 import { getLocalCoverAssetUrl } from '../../../services/localCoverAssetUrl';
-import { getCachedCustomPlaylistTrack } from '../../../services/localPlaylistService';
+import { getCachedCustomPlaylistTrack, getCustomPlaylistTracks, isCustomPlaylistTrackKey } from '../../../services/localPlaylistService';
 import { getSongCoverUrl } from '../../../services/onlineMusic/songMetadata';
 import { applyLocalCollectionCoverOverrides } from '../collection/cover/localCollectionCover';
 import { useLocalCollectionCoverUrls } from '../collection/cover/useLocalCollectionCoverUrls';
@@ -54,17 +54,38 @@ export const useLibraryHomeLocal = ({
 }): LibraryHomeLocal => {
     const { t } = useTranslation();
     const { ready, entities, assignments } = catalog;
-    const builtGroups = useMemo(() => buildLocalHomeGroups(
-        localSongs,
-        localPlaylists,
-        t,
-        ready ? { entities, assignments } : undefined,
-        getLocalCoverAssetUrl,
-        songId => {
-            const track = getCachedCustomPlaylistTrack(songId);
-            return track ? (getSongCoverUrl(track) ?? undefined) : undefined;
-        },
-    ), [assignments, entities, localPlaylists, localSongs, ready, t]);
+    const [customTracksRevision, setCustomTracksRevision] = useState(0);
+    useEffect(() => {
+        const missingKeys = Array.from(new Set(
+            localPlaylists.flatMap(playlist => playlist.songIds)
+                .filter(songId => isCustomPlaylistTrackKey(songId) && !getCachedCustomPlaylistTrack(songId)),
+        ));
+        if (!missingKeys.length) return;
+        let cancelled = false;
+        void getCustomPlaylistTracks(missingKeys).then(tracks => {
+            if (!cancelled && tracks.size > 0) {
+                setCustomTracksRevision(revision => revision + 1);
+            }
+        });
+        return () => {
+            cancelled = true;
+        };
+    }, [localPlaylists]);
+
+    const builtGroups = useMemo(() => {
+        void customTracksRevision;
+        return buildLocalHomeGroups(
+            localSongs,
+            localPlaylists,
+            t,
+            ready ? { entities, assignments } : undefined,
+            getLocalCoverAssetUrl,
+            songId => {
+                const track = getCachedCustomPlaylistTrack(songId);
+                return track ? (getSongCoverUrl(track) ?? undefined) : undefined;
+            },
+        );
+    }, [assignments, customTracksRevision, entities, localPlaylists, localSongs, ready, t]);
     // 自定义封面盖在自动封面上：分组本身照旧按歌推出来，换封面不必重新分组。
     const coverOverrides = useLocalCollectionCoverUrls();
     const groups = useMemo(() => ({

@@ -1,7 +1,9 @@
 import React, { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { LocalSong } from '../../types';
-import { buildLocalSongCoverPicks } from '../../library/core/collection/cover/localCollectionCover';
+import {
+    buildLocalSongCoverPicks,
+    type LocalCollectionCoverSongEntry,
+} from '../../library/core/collection/cover/localCollectionCover';
 import { getLocalCoverAssetUrl } from '../../services/localCoverAssetUrl';
 import { getSizedCoverUrl } from '../../utils/coverUrl';
 
@@ -12,9 +14,9 @@ import { getSizedCoverUrl } from '../../utils/coverUrl';
 const THUMBNAIL_SIZE = 256;
 
 type LocalCollectionCoverSongPicksProps = {
-    songs: LocalSong[];
+    songs: readonly LocalCollectionCoverSongEntry[];
     disabled: boolean;
-    onPick: (song: LocalSong) => void;
+    onPick: (song: LocalCollectionCoverSongEntry) => void;
 };
 
 const LocalCollectionCoverSongPicks: React.FC<LocalCollectionCoverSongPicksProps> = ({ songs, disabled, onPick }) => {

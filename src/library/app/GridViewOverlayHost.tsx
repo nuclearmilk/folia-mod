@@ -20,7 +20,7 @@ import {
     resolveLocalAlbumArtistDisplay,
     resolveLocalGridViewTracks,
 } from '../../components/app/home/gridViewCollectionAdapters';
-import { getCustomPlaylistTracks, isCustomPlaylistTrackKey } from '../../services/localPlaylistService';
+import { getCachedCustomPlaylistTrack, getCustomPlaylistTracks, isCustomPlaylistTrackKey } from '../../services/localPlaylistService';
 import { getSongCoverUrl } from '../../services/onlineMusic/songMetadata';
 import { createLibraryPlaybackPort } from './createLibraryPlaybackPort';
 import { createLibraryMutationPort } from './createLibraryMutationPort';
@@ -34,7 +34,7 @@ import { LocalSongMetadataMatchDialog } from '../../components/modal/LocalSongMe
 import { useScratchpadStore } from '../../stores/useScratchpadStore';
 import LocalCollectionCoverDialog from '../../components/local-collection-cover/LocalCollectionCoverDialog';
 import LocalPlaylistOrderEditor from '../../components/local-playlist-order/LocalPlaylistOrderEditor';
-import { resolveLocalCollectionCover } from '../core/collection/cover/localCollectionCover';
+import { resolveLocalCollectionCover, type LocalCollectionCoverSongEntry } from '../core/collection/cover/localCollectionCover';
 import { useLocalCollectionCoverUrls } from '../core/collection/cover/useLocalCollectionCoverUrls';
 import { followEntityRedirect } from '../../utils/localLibraryIndex';
 import { buildLocalCatalogIndex, resolveLocalCatalogLink } from '../core/shared/localCatalogLinks';
@@ -719,6 +719,55 @@ const GridViewOverlayHost: React.FC<GridViewOverlayHostProps> = ({
             .map(songId => songsById.get(songId))
             .filter((song): song is LocalSong => Boolean(song));
     }, [coverEditingTarget, surfaceProps.localSongs]);
+    useEffect(() => {
+        if (!coverEditingTarget) return;
+        const customKeys = coverEditingTarget.songIds.filter(isCustomPlaylistTrackKey);
+        if (!customKeys.length) return;
+
+        let cancelled = false;
+        void getCustomPlaylistTracks(customKeys).then(tracks => {
+            if (!cancelled && tracks.size > 0) {
+                setCustomTracksMap(prev => {
+                    const next = new Map(prev);
+                    let changed = false;
+                    tracks.forEach((val, key) => {
+                        if (next.get(key) !== val) {
+                            next.set(key, val);
+                            changed = true;
+                        }
+                    });
+                    return changed ? next : prev;
+                });
+            }
+        });
+
+        return () => {
+            cancelled = true;
+        };
+    }, [coverEditingTarget]);
+    const coverEditingSongEntries = useMemo<LocalCollectionCoverSongEntry[]>(() => {
+        if (!coverEditingTarget) return [];
+        const songsById = new Map(surfaceProps.localSongs.map(song => [song.id, song]));
+        const entries: LocalCollectionCoverSongEntry[] = [];
+        coverEditingTarget.songIds.forEach(songId => {
+            const localSong = songsById.get(songId);
+            if (localSong) {
+                entries.push(localSong);
+                return;
+            }
+            if (isCustomPlaylistTrackKey(songId)) {
+                const customTrack = customTracksMap.get(songId) ?? getCachedCustomPlaylistTrack(songId);
+                if (customTrack) {
+                    entries.push({
+                        id: songId,
+                        title: customTrack.name,
+                        coverUrl: getSongCoverUrl(customTrack),
+                    });
+                }
+            }
+        });
+        return entries;
+    }, [coverEditingTarget, customTracksMap, surfaceProps.localSongs]);
     const matchingSongAssignment = matchingSongId
         ? localLibraryCatalog.assignments.find(assignment => assignment.songId === matchingSongId)
         : undefined;
@@ -861,6 +910,7 @@ const GridViewOverlayHost: React.FC<GridViewOverlayHostProps> = ({
                 <LocalCollectionCoverDialog
                     collection={coverEditingTarget}
                     songs={coverEditingSongs}
+                    coverSongs={coverEditingSongEntries}
                     isDaylight={isDaylight}
                     onClose={() => setCoverEditingCollection(null)}
                 />

@@ -57,6 +57,7 @@ const gridViewReference = ({
     const isLocalFolderCollection = isLocalCollection && collection?.type === 'folder' && !collection?.isVirtual;
     const isLocalAllSongsCollection = isLocalCollection && collection?.type === 'folder' && Boolean(collection?.isVirtual);
     const isLocalPlaylistCollection = isLocalCollection && collection?.type === 'playlist' && Boolean(collection?.playlistId) && !collection?.isVirtual;
+    const isLocalFavoritePlaylistCollection = isLocalCollection && collection?.type === 'playlist' && Boolean(collection?.playlistId) && Boolean(collection?.isVirtual);
     const isLocalEntityCollection = isLocalCollection && Boolean(collection?.entityId);
     const isNavidromePlaylistCollection = isNavidromeCollection && collection?.type === 'playlist' && Boolean(collection?.editable);
     const canAddNavidromeToPlaylist = isNavidromeCollection
@@ -84,6 +85,7 @@ const gridViewReference = ({
         || canEditProviderPlaylist
         || (isDailyRecommendationsCollection && !selectedDailyRecommendationDate && canDislikeCollectionSongs(collection))
         || isLocalPlaylistCollection
+        || isLocalFavoritePlaylistCollection
         || isNavidromePlaylistCollection
     );
     const isOnlinePlaylist = collectionSource === 'online' && collection?.type === 'playlist' && !isCloudDrive;
@@ -102,6 +104,7 @@ const gridViewReference = ({
             isLocalFolderCollection,
             isLocalAllSongsCollection,
             isLocalPlaylistCollection,
+            isLocalFavoritePlaylistCollection,
             isLocalEntityCollection,
             isNavidromePlaylistCollection,
             isCloudDrive,
@@ -293,10 +296,13 @@ describe('collection mutation branches match GridView', () => {
         expect(resolveFor(dailyWithoutDislike).capabilities.removeEntry.supported).toBe(false);
 
         const favorites = DESCRIPTORS.find(d => d.source === 'local' && d.id === 'fav')!;
-        // 收藏是虚拟歌单：不能改名、不能删，但能导出（与网格的按钮一致）。
+        // 收藏是虚拟歌单：不能改名、不能删歌单、不能排序，但能编辑移除里面的歌曲和导出。
         expect(resolveFor(favorites).capabilities).toMatchObject({
+            editCollection: { supported: true },
+            removeEntry: { supported: true },
             rename: { supported: false },
             deleteCollection: { supported: false },
+            reorderPlaylist: { supported: false },
             exportPlaylist: { supported: true },
         });
     });

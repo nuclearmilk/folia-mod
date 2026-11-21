@@ -112,14 +112,25 @@ export const resolveLocalCollectionPosterFolder = (
     return songs.every(song => song.folderName === folder) ? folder : null;
 };
 
+/** 挑选集合封面时一首歌需要的最小结构：既支持本地曲库歌曲，也支持混合歌单里的在线/B站/Navidrome曲目。 */
+export type LocalCollectionCoverSongEntry = {
+    readonly id: string;
+    readonly title: string;
+    readonly useOnlineCover?: boolean;
+    readonly localCoverAssetId?: string;
+    readonly onlineMetadata?: LocalSong['onlineMetadata'];
+    /** 混合本地歌单中非本地曲目（在线 / B站 / Navidrome）的封面地址。 */
+    readonly coverUrl?: string;
+};
+
 /** 用歌曲封面时，一首歌拿哪张图：与自动封面同一条偏好（选了在线封面的先在线，否则先本地）。 */
 export const resolveLocalSongCoverCandidates = (
-    song: Pick<LocalSong, 'useOnlineCover' | 'localCoverAssetId' | 'onlineMetadata'>,
+    song: Pick<LocalCollectionCoverSongEntry, 'useOnlineCover' | 'localCoverAssetId' | 'onlineMetadata' | 'coverUrl'>,
     coverAssetUrl: (assetId: string | undefined, size?: number) => string | null,
     size?: number,
 ): string[] => {
     const local = coverAssetUrl(song.localCoverAssetId, size) || undefined;
-    const online = song.onlineMetadata?.coverUrl || undefined;
+    const online = song.onlineMetadata?.coverUrl || song.coverUrl || undefined;
     const ordered = song.useOnlineCover ? [online, local] : [local, online];
     return ordered.filter((url): url is string => Boolean(url));
 };
@@ -139,7 +150,7 @@ export type LocalSongCoverPick = {
  * ——资源按内容寻址，内容相同就是同一个 id——或同一个在线地址）时合成一项。
  */
 export const buildLocalSongCoverPicks = (
-    songs: ReadonlyArray<Pick<LocalSong, 'id' | 'title' | 'useOnlineCover' | 'localCoverAssetId' | 'onlineMetadata'>>,
+    songs: ReadonlyArray<LocalCollectionCoverSongEntry>,
     coverAssetUrl: (assetId: string | undefined, size?: number) => string | null,
     thumbnailSize: number,
 ): LocalSongCoverPick[] => {
