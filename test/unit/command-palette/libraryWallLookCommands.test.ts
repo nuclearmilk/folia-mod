@@ -30,6 +30,7 @@ const createContext = (state: Settings) => {
     const setLibraryWallLook = vi.fn((look: LibraryWallLook) => { state.look = look; });
     const setLibraryWallWindowsPerBlock = vi.fn((count: number) => { state.windows = count; });
     const toggleLibraryWallStackEdges = vi.fn();
+    const toggleLibraryWallCollectionTilt = vi.fn();
     const toggleLibraryWallSeamClear = vi.fn();
     const toggleLibraryWallBackdropLyrics = vi.fn();
     const toggleLibraryWallBackdropBlur = vi.fn();
@@ -40,6 +41,7 @@ const createContext = (state: Settings) => {
         shared: { t: (_key: string, fallback?: string) => fallback ?? '' },
         settings: {
             toggleLibraryWallStackEdges,
+            toggleLibraryWallCollectionTilt,
             toggleLibraryWallSeamClear,
             toggleLibraryWallBackdropLyrics,
             toggleLibraryWallBackdropBlur,
@@ -61,6 +63,7 @@ const createContext = (state: Settings) => {
         setLibraryWallLook,
         setLibraryWallWindowsPerBlock,
         toggleLibraryWallStackEdges,
+        toggleLibraryWallCollectionTilt,
         toggleLibraryWallSeamClear,
         toggleLibraryWallBackdropLyrics,
         toggleLibraryWallBackdropBlur,
@@ -181,6 +184,16 @@ describe('library wall windows picker', () => {
         expect(anchor.execute('', context)).toBe(true);
         expect(openSettings).toHaveBeenCalledWith('options', 'home', null, 'bravaisSettings');
     });
+
+    it('toggles the collection tilt only while bravais is the effective suite', () => {
+        const toggle = command('library-wall-collection-tilt-toggle');
+        expect(toggle.group).toBe('settings');
+        expect(toggle.executeShortcut).toBeUndefined();
+        expect(toggle.isAvailable?.(createContext({ available: false, look: 'solid', windows: 3 }).context)).toBe(false);
+        const { context, toggleLibraryWallCollectionTilt } = createContext({ available: true, look: 'solid', windows: 3 });
+        expect(toggle.execute('', context)).toBe(true);
+        expect(toggleLibraryWallCollectionTilt).toHaveBeenCalledTimes(1);
+    });
 });
 
 describe('bravais info strip and backdrop commands', () => {
@@ -231,7 +244,7 @@ describe('bravais info strip and backdrop commands', () => {
 });
 
 describe('bravais info strip direction picker', () => {
-    it('is offered while bravais is the effective suite, lists auto / vertical / horizontal and applies the pick', async () => {
+    it('is offered while bravais is the effective suite, lists auto / auto-reverse / vertical / horizontal and applies the pick', async () => {
         const picker = command('library-wall-seam-direction-picker');
         expect(picker.surface).toBeDefined();
         expect(picker.executeShortcut).toBeUndefined();
@@ -240,7 +253,7 @@ describe('bravais info strip direction picker', () => {
 
         const { context, setLibraryWallSeamDirection } = createContext({ available: true, look: 'solid', windows: 3, seamDirection: 'auto' });
         const matches = libraryWallSeamDirectionPickerSurface.buildMatches!({ context, query: '' });
-        expect(matches.map(match => readLibraryWallPick(match.command.id))).toEqual(['auto', 'vertical', 'horizontal']);
+        expect(matches.map(match => readLibraryWallPick(match.command.id))).toEqual(['auto', 'auto-reverse', 'vertical', 'horizontal']);
         expect(matches[0].command.description).toMatch(/^In use/);
         const byLabel = libraryWallSeamDirectionPickerSurface.buildMatches!({ context, query: 'horiz' });
         expect(byLabel.map(match => readLibraryWallPick(match.command.id))).toEqual(['horizontal']);

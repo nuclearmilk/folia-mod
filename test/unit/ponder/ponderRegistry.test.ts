@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { PONDER_TARGET_LIST, findPonderTarget } from '@/components/ponder/ponderRegistry';
 import { compilePonderScene } from '@/utils/ponder/compilePonderTimeline';
-import { SETTINGS_ANCHOR_DEFINITIONS } from '@/components/modal/settings/navigation/settingsAnchorModel';
+import { SETTINGS_ANCHOR_DEFINITIONS } from '@/utils/settingsAnchorModel';
 import { VISUALIZER_SETTINGS_SECTIONS } from '@/stores/useSettingsModalStore';
 import { PONDER_TARGET_CATEGORIES } from '@/types/ponder';
 import type { PonderAnchorPoint, PonderStep, PonderSurfaceKind } from '@/types/ponder';
@@ -159,7 +159,7 @@ describe('ponder registry', () => {
             'grid-page': new Set(['tab-switched', 'collection-open', 'map-open', 'search-open', 'command-open']),
             'grid-view-page': new Set(['card-focused', 'info-open', 'filter-open']),
             'lattice-page': new Set(['wall-panned', 'poster-focused', 'poster-expanded', 'tools-open', 'lights-off', 'command-open']),
-            'player-bar': new Set(['title-hovered', 'slots-shuffle', 'slots-volume', 'collapsed']),
+            'player-bar': new Set(['title-hovered', 'slots-shuffle', 'slots-volume', 'slots-holding', 'collapsed']),
             'player-page': new Set(['palette-open', 'palette-closed', 'execute-mode', 'panel-open']),
             'side-panel': new Set(['cover-tab', 'source-tab', 'controls-tab', 'queue-tab', 'account-tab', 'controls-mode-list', 'fm-tab', 'source-tab-file-dialog']),
             'lattice-chrome': new Set(['slots-swapped', 'bottom-bar-shown']),
@@ -194,6 +194,7 @@ describe('ponder registry', () => {
             ]),
             'sign-in': new Set(['window-open', 'window-account']),
             'lyric-match': new Set(['picked', 'local-file']),
+            scratchpad: new Set(['card-hover', 'collected', 'drawer', 'row-hover', 'history', 'canvas', 'canvas-reordered', 'canvas-selected']),
             'lyric-style': new Set([
                 'preview-style-b', 'preview-monet', 'preview-monet-bare', 'preview-background-b', 'preview-background-b-style-b', 'preview-romanization',
                 'panel-style-b', 'panel-monet', 'panel-monet-off', 'panel-background', 'panel-subtitle',

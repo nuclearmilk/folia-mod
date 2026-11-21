@@ -171,6 +171,14 @@ describe('store contract', () => {
             // so the settings store drives the position store. Same shape as the edge above, and
             // the reverse edge is likewise absent: the position store imports no store at all.
             useHomeLayoutSettingsStore: ['useHomeCardPositionStore'],
+            // The explore feed's own memory across sessions (section order, collections taken
+            // out): a module of the store's, not another store, kept beside it in src/stores/.
+            // Nothing else imports it, and it imports no store besides storagePrimitives.
+            useExploreFeedStore: ['exploreFeedMemory'],
+            // The command palette's three pinned slots (normalizing and persisting them): the
+            // settings modal store's own persistence module, not another store, kept beside it
+            // in src/stores/. It imports no store besides storagePrimitives.
+            useSettingsModalStore: ['pinnedCommandPreferences'],
         };
         const INFRASTRUCTURE = new Set([
             'storagePrimitives', 'useStatusMessageStore', 'visualizerSettingsPersistence', 'motionSignals',

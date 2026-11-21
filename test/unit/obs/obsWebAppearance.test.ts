@@ -41,6 +41,7 @@ const sampleConfig = {
     hidePlayerTranslationSubtitle: true,
     showSubtitleTranslation: false,
     subtitleContentMode: 'romanization' as const,
+    subtitleOverlayLayout: 'current+next' as const,
     subtitleOverlayBackground: true,
     subtitleUpcomingLyricsBlur: false,
     subtitleOverlayOpacity: 0.45,
@@ -69,6 +70,7 @@ describe('buildObsAppearanceFromShortcode', () => {
         expect(a.hideTranslationSubtitle).toBe(true); // hidePlayerTranslationSubtitle → hideTranslationSubtitle
         expect(a.showSubtitleTranslation).toBe(false);
         expect(a.subtitleContentMode).toBe('romanization');
+        expect(a.subtitleOverlayLayout).toBe('current+next');
         expect(a.subtitleOverlayBackground).toBe(true);
         expect(a.subtitleUpcomingLyricsBlur).toBe(false);
         expect(a.background.mode).toBe('monet');
@@ -94,9 +96,20 @@ describe('buildObsAppearanceFromShortcode', () => {
 
     // An older link carries none of the above. Leaving each undefined is what lets the renderer apply
     // its own default, so a pre-existing OBS source keeps rendering exactly as it did.
+    // 用户 2026-11-08 定：配置码只加 OBS 页面看得到的；歌词画布的分辨率与抗锯齿在 OBS 页面看得到，进了配置码（短码 lrq）
+    it('carries the lyric render quality, read into valid values', () => {
+        const withQuality = compressConfig({ visualizerMode: 'monet', lyricRenderQuality: { scale: 1.5, antialias: 'on' } });
+        expect(buildObsAppearanceFromShortcode(withQuality, { isDaylight: false, transparent: false }).lyricRenderQuality)
+            .toEqual({ scale: 1.5, antialias: 'on' });
+        const mangled = compressConfig({ visualizerMode: 'monet', lyricRenderQuality: { scale: 9, antialias: 'sharp' } });
+        expect(buildObsAppearanceFromShortcode(mangled, { isDaylight: false, transparent: false }).lyricRenderQuality)
+            .toEqual({ scale: 1, antialias: 'auto' });
+    });
+
     it('leaves the newer fields undefined for a link that predates them', () => {
         const legacy = compressConfig({ visualizerMode: 'monet' });
         const a = buildObsAppearanceFromShortcode(legacy, { isDaylight: false, transparent: false });
+        expect(a.lyricRenderQuality).toBeUndefined();
         expect(a.subtitleOverlayOpacity).toBeUndefined();
         expect(a.showHarmonySubtitle).toBeUndefined();
         expect(a.harmonySubtitleBackground).toBeUndefined();
@@ -151,6 +164,24 @@ describe('buildObsAppearanceFromShortcode', () => {
         expect(typeof garbage.mode).toBe('string');
     });
 
+    // #1013: the card reaches the web overlay only when the cfg says to draw it in the source.
+    it('draws the now playing card only when the cfg enables it for the browser source', () => {
+        const on = compressConfig({ stageTrackPillMode: 'auto', stageTrackPillTimeoutSec: 99, stageTrackPillInObs: true, stageTrackPillPosition: { x: 1, y: 0 } });
+        expect(buildObsAppearanceFromShortcode(on, { isDaylight: false, transparent: true }).nowPlayingCard)
+            .toEqual({ mode: 'auto', timeoutSec: 60, position: { x: 1, y: 0 } });
+
+        const off = compressConfig({ stageTrackPillMode: 'always', stageTrackPillInObs: false });
+        expect(buildObsAppearanceFromShortcode(off, { isDaylight: false, transparent: true }).nowPlayingCard).toBeNull();
+        const never = compressConfig({ stageTrackPillMode: 'never', stageTrackPillInObs: true });
+        expect(buildObsAppearanceFromShortcode(never, { isDaylight: false, transparent: true }).nowPlayingCard).toBeNull();
+        // A link copied before the switch existed keeps drawing no card.
+        // A malformed timeout falls back to the default rather than to the 3 s floor.
+        const nullTimeout = compressConfig({ stageTrackPillMode: 'auto', stageTrackPillTimeoutSec: null, stageTrackPillInObs: true });
+        expect(buildObsAppearanceFromShortcode(nullTimeout, { isDaylight: false, transparent: true }).nowPlayingCard?.timeoutSec).toBe(10);
+        const legacy = compressConfig({ stageTrackPillMode: 'always' });
+        expect(buildObsAppearanceFromShortcode(legacy, { isDaylight: false, transparent: true }).nowPlayingCard).toBeNull();
+    });
+
     it('drops a non-array urlBackgroundList instead of passing it through (render crash guard)', () => {
         const cfg = JSON.stringify({ visualizerMode: 'monet', visualizerBackgroundMode: 'url', urlBackgroundList: 'x' });
         const a = buildObsAppearanceFromShortcode(cfg, { isDaylight: false, transparent: false });
@@ -159,6 +190,7 @@ describe('buildObsAppearanceFromShortcode', () => {
 });
 
 describe('parseObsWebParams', () => {
+    // Links copied before cfg moved to the fragment carry it in the query string.
     it('reads host/cfg/daylight/transparent/visualizer with OBS defaults', () => {
         const p = parseObsWebParams('?host=localhost%3A9863&cfg=folia-theme%3A%2F%2Fabc&daylight=1&visualizer=cadenza');
         expect(p.host).toBe('localhost:9863');
@@ -166,6 +198,11 @@ describe('parseObsWebParams', () => {
         expect(p.isDaylight).toBe(true);
         expect(p.transparent).toBe(false); // 缺省=显示背景
         expect(p.visualizer).toBe('cadenza');
+    });
+
+    it('reads the UI language the link carries, null when absent', () => {
+        expect(parseObsWebParams('?lang=zh-CN').language).toBe('zh-CN');
+        expect(parseObsWebParams('').language).toBeNull();
     });
 
     it('defaults to dark + background (opaque), and transparent only when transparent=1', () => {
@@ -187,6 +224,32 @@ describe('parseObsWebParams', () => {
         expect(parseObsWebParams('').themeMode).toBeNull();
         expect(parseObsWebParams('?obsTheme=nonsense').themeMode).toBeNull();
     });
+
+    it('reads cfg from the fragment, the rest from the query string', () => {
+        const p = parseObsWebParams('?obs=1&host=localhost%3A9863&daylight=1', '#cfg=folia-theme%3A%2F%2Fabc');
+        expect(p.cfg).toBe('folia-theme://abc');
+        expect(p.host).toBe('localhost:9863');
+        expect(p.isDaylight).toBe(true);
+    });
+
+    it('prefers the fragment cfg over a query cfg', () => {
+        expect(parseObsWebParams('?cfg=old', '#cfg=new').cfg).toBe('new');
+    });
+
+    it('ignores a fragment without cfg', () => {
+        expect(parseObsWebParams('?cfg=folia-theme%3A%2F%2Fabc', '#home').cfg).toBe('folia-theme://abc');
+        expect(parseObsWebParams('?obs=1', '#home').cfg).toBeNull();
+        expect(parseObsWebParams('?obs=1', '').cfg).toBeNull();
+    });
+
+    it('reads no field other than cfg from the fragment', () => {
+        const p = parseObsWebParams('?obs=1', '#host=evil%3A1&daylight=1&transparent=1&obsTheme=ai&lang=en');
+        expect(p.host).toBe('');
+        expect(p.isDaylight).toBe(false);
+        expect(p.transparent).toBe(false);
+        expect(p.themeMode).toBeNull();
+        expect(p.language).toBeNull();
+    });
 });
 
 describe('parseObsAiParams', () => {
@@ -207,7 +270,12 @@ describe('parseObsAiParams', () => {
 });
 
 describe('extractCfgFromInput', () => {
-    it('pulls cfg out of a full OBS URL', () => {
+    it('pulls cfg out of the fragment of a full OBS URL', () => {
+        const url = 'https://example.test/?obs=1&obsSource=now-playing&host=localhost%3A9863#cfg=folia-theme%3A%2F%2Fabc123';
+        expect(extractCfgFromInput(url)).toBe('folia-theme://abc123');
+    });
+
+    it('pulls cfg out of the query string of an older OBS URL', () => {
         const url = 'https://example.test/?obs=1&obsSource=now-playing&host=localhost%3A9863&cfg=folia-theme%3A%2F%2Fabc123';
         expect(extractCfgFromInput(url)).toBe('folia-theme://abc123');
     });
@@ -219,33 +287,50 @@ describe('extractCfgFromInput', () => {
 });
 
 describe('buildObsSourceUrl', () => {
-    it('bakes source + host + cfg into the query', () => {
-        const url = buildObsSourceUrl('now-playing', 'folia-theme://abc', 'localhost:9863');
-        expect(url).toContain('obs=1');
-        expect(url).toContain('obsSource=now-playing');
-        expect(url).toContain('host=localhost%3A9863');
-        expect(url).toContain('cfg=folia-theme');
+    // Unit tests run without a window, so the builder emits a path-relative URL; resolve it on a base.
+    const parse = (url: string) => new URL(url, 'https://x.test');
+
+    // cfg rides in the fragment: the browser never sends it, so a host that caps the request URL
+    // (e.g. Azure Front Door at an 8192-byte query string) still serves an ~11 KB default cfg link.
+    it('puts cfg in the fragment and the technical params in the query string', () => {
+        const url = parse(buildObsSourceUrl('now-playing', 'folia-theme://abc', 'localhost:9863'));
+        expect(url.searchParams.get('obs')).toBe('1');
+        expect(url.searchParams.get('obsSource')).toBe('now-playing');
+        expect(url.searchParams.get('host')).toBe('localhost:9863');
+        expect(url.searchParams.has('cfg')).toBe(false);
+        expect(url.hash).toBe('#cfg=folia-theme%3A%2F%2Fabc');
         // round-trip：从组装的 URL 再剥回 cfg。
-        expect(extractCfgFromInput(url.startsWith('http') ? url : `https://x.test${url}`)).toBe('folia-theme://abc');
+        expect(extractCfgFromInput(url.href)).toBe('folia-theme://abc');
     });
 
-    it('carries extra params (daylight/transparent) ahead of the terminal cfg', () => {
-        const url = buildObsSourceUrl('now-playing', 'folia-theme://abc', '', { daylight: '1', transparent: '0' });
-        expect(url).toContain('daylight=1');
-        expect(url).toContain('transparent=0');
-        // cfg stays last so trailing technical params never wrap the copied link.
-        expect(url.indexOf('cfg=')).toBeGreaterThan(url.indexOf('transparent=0'));
+    it('carries extra params (daylight/transparent) in the query string', () => {
+        const url = parse(buildObsSourceUrl('now-playing', 'folia-theme://abc', '', { daylight: '1', transparent: '0' }));
+        expect(url.searchParams.get('daylight')).toBe('1');
+        expect(url.searchParams.get('transparent')).toBe('0');
+        expect(url.hash).toBe('#cfg=folia-theme%3A%2F%2Fabc');
     });
 
-    it('keeps the long cfg blob last, after source-specific extra params', () => {
-        const url = buildObsSourceUrl('playercap', 'folia-theme://abc', 'lan:8765', { nxpcPlayer: 'cloudmusicv3', nxpcBasis: 'timestamp' });
-        // cfg always comes last; technical params (host/nxpcPlayer/nxpcBasis) go up front for readability.
-        expect(url.indexOf('cfg=')).toBeGreaterThan(url.indexOf('nxpcPlayer='));
-        expect(url.indexOf('cfg=')).toBeGreaterThan(url.indexOf('nxpcBasis='));
-        expect(url.indexOf('cfg=')).toBeGreaterThan(url.indexOf('host='));
-        // cfg is the final segment: no &param follows it (guaranteed structurally, not by convention).
-        expect(url.slice(url.indexOf('cfg=')).includes('&')).toBe(false);
-        // order-independent parsing can still unwrap cfg.
-        expect(extractCfgFromInput(`https://x.test${url}`)).toBe('folia-theme://abc');
+    it('keeps source-specific extra params in the query string, out of the cfg fragment', () => {
+        const url = parse(buildObsSourceUrl('playercap', 'folia-theme://abc', 'lan:8765', { nxpcPlayer: 'cloudmusicv3', nxpcBasis: 'timestamp' }));
+        expect(url.searchParams.get('nxpcPlayer')).toBe('cloudmusicv3');
+        expect(url.searchParams.get('nxpcBasis')).toBe('timestamp');
+        expect(url.searchParams.get('host')).toBe('lan:8765');
+        expect(url.searchParams.has('cfg')).toBe(false);
+        // the fragment holds cfg alone.
+        expect([...new URLSearchParams(url.hash.slice(1)).keys()]).toEqual(['cfg']);
+    });
+
+    it('adds no fragment without a cfg', () => {
+        const url = buildObsSourceUrl('now-playing', '', '');
+        expect(url).not.toContain('#');
+        expect(parse(url).searchParams.has('cfg')).toBe(false);
+    });
+
+    // A base64 payload carries '+', '/' and '='; each must survive the fragment encoding unchanged.
+    it('round-trips a base64 cfg through the fragment', () => {
+        const cfg = 'folia-theme://eyJ2+bW9k/ZSI6=Im1vbmV0In0==';
+        const url = parse(buildObsSourceUrl('playercap', cfg, 'localhost:8765', { obsTheme: 'static' }));
+        expect(parseObsWebParams(url.search, url.hash).cfg).toBe(cfg);
+        expect(extractCfgFromInput(url.href)).toBe(cfg);
     });
 });

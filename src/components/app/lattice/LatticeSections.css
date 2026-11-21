@@ -24,7 +24,6 @@
 }
 
 .lattice-root.is-lights-out .lattice-heading::after { opacity: 0.82; }
-.lattice-root.is-daylight.is-lights-out .lattice-heading::after { background: #fff; }
 
 /* The section's number is a poster's badge as it is; the part of a section that takes several
    lots is one more, in the other corner. (Two classes: Lattice.css, which places a badge, is
@@ -124,7 +123,7 @@
 /* The list of all sections, under the pill. Square, as everything of the wall but its round buttons. */
 .lattice-sections-list {
     position: absolute;
-    top: 68px;
+    top: calc(68px + var(--window-buttons-drop, 0px));
     left: 120px;
     z-index: 6;
     display: flex;
@@ -187,7 +186,7 @@
     }
 
     .lattice-sections-list {
-        top: 62px;
+        top: calc(62px + var(--window-buttons-drop, 0px));
         left: 16px;
         width: calc(100vw - 32px);
     }

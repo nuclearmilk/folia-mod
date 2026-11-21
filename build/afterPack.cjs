@@ -44,9 +44,9 @@ async function pathExists(candidate) {
  * 真正的翻译，两边都要在。
  */
 const BUNDLED_LOCALES = {
-  darwin: ['en', 'zh_CN', 'zh_TW', 'id'],
-  win32: ['en-US', 'zh-CN', 'zh-TW', 'id'],
-  linux: ['en-US', 'zh-CN', 'zh-TW', 'id'],
+  darwin: ['en', 'zh_CN', 'zh_TW', 'id', 'vi'],
+  win32: ['en-US', 'zh-CN', 'zh-TW', 'id', 'vi'],
+  linux: ['en-US', 'zh-CN', 'zh-TW', 'id', 'vi'],
 };
 
 async function verifyBundledLocales(context) {
@@ -105,7 +105,13 @@ exports.default = async (context) => {
   await verifyBundledLocales(context);
   await verifyBundledMnn(context);
   await pruneLibrespotBinaries(context);
+  if (context.electronPlatformName === 'win32') {
+    const { verifyWindowsCompanion } = require('../electron/appleMusic/windows/prepareBundle.cjs');
+    await verifyWindowsCompanion(context.packager.getResourcesDir(context.appOutDir));
+  }
   if (context.electronPlatformName === 'darwin') {
+    const { verifyMacCompanion } = require('../electron/appleMusic/macos/prepareBundle.cjs');
+    await verifyMacCompanion(context.packager.getResourcesDir(context.appOutDir));
     const { verifyBundledKoffi } = await import('../packaging/macos/prepare-koffi.mjs');
     await verifyBundledKoffi({
       resourcesDir: context.packager.getResourcesDir(context.appOutDir),

@@ -49,6 +49,7 @@ export type HomeModelDeps = {
     localSongs: HomeSurfaceProps['localSongs'];
     localLibraryCatalog: HomeSurfaceProps['localLibraryCatalog'];
     localPlaylists: HomeSurfaceProps['localPlaylists'];
+    onRefreshLocalPlaylists: HomeSurfaceProps['onRefreshLocalPlaylists'];
     onRefreshLocalSongs: HomeSurfaceProps['onRefreshLocalSongs'];
     onAddLocalSongToQueue?: HomeSurfaceProps['onAddLocalSongToQueue'];
     localMusicState: HomeSurfaceProps['localMusicState'];
@@ -60,6 +61,8 @@ export type HomeModelDeps = {
     openStagePlayer: () => Promise<void>;
     theme: HomeSurfaceProps['theme'];
     playAll: (songs: SongResult[]) => void;
+    /** 随机播放：这批歌打乱后再从头播（播放控制器决定怎么洗，「一轮不重复」也在那里）。 */
+    shufflePlayAll: (songs: SongResult[]) => void;
     addAllToQueue: (songs: SongResult[], options?: { suppressToast?: boolean }) => number | void;
     addSongToQueue: (song: SongResult) => void;
     onStatusMessage?: HomeSurfaceProps['onStatusMessage'];
@@ -91,6 +94,7 @@ export const buildHomeModel = ({
     localSongs,
     localLibraryCatalog,
     localPlaylists,
+    onRefreshLocalPlaylists,
     onRefreshLocalSongs,
     onAddLocalSongToQueue,
     localMusicState,
@@ -104,6 +108,7 @@ export const buildHomeModel = ({
     theme,
     navidromeEnabled,
     playAll,
+    shufflePlayAll,
     addAllToQueue,
     addSongToQueue,
     onStatusMessage,
@@ -137,9 +142,11 @@ export const buildHomeModel = ({
             playlists: activeProvider?.collections.filter(collection => collection.type !== 'cloud') ?? playlists,
             cloudPlaylist: activeProvider?.collections.find(collection => collection.type === 'cloud') ?? cloudPlaylist,
             currentTrack: currentSong,
-            onPlayAll: (songs, from) => {
+            onPlayAll: (songs, from, options) => {
                 noteQueueStarted(from ?? null, songs);
-                playAll(songs);
+                // 随机播放：整批交给播放控制器打乱再播，第一首也是随机的。
+                if (options?.shuffle) shufflePlayAll(songs);
+                else playAll(songs);
             },
             onAddAllToQueue: addAllToQueue,
             onAddSongToQueue: addSongToQueue,
@@ -153,6 +160,7 @@ export const buildHomeModel = ({
             localSongs,
             localLibraryCatalog,
             localPlaylists,
+            onRefreshLocalPlaylists,
             onRefreshLocalSongs,
             onAddLocalSongToQueue,
             localMusicState,

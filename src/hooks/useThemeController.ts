@@ -36,6 +36,7 @@ import {
 import { getPlaybackSongKey } from '../utils/appPlaybackGuards';
 import { usePlaybackStore } from '../stores/usePlaybackStore';
 import { setStatusMessage as setStatusMsg } from '../stores/useStatusMessageStore';
+import { endThemeOverrideForUserChoice, useThemeOverrideStore } from '../stores/useThemeOverrideStore';
 import { useStableCallbacks } from './useStableCallbacks';
 
 type StatusSetter = Dispatch<SetStateAction<StatusMessage | null>>;
@@ -128,6 +129,72 @@ const getSelectedDualTheme = (dualTheme: DualTheme, isDaylight: boolean) => (
     isDaylight ? dualTheme.light : dualTheme.dark
 );
 
+/**
+ * The theme the app shows in a mode (`isDaylight`), from the song's theme sources. A mod's theme
+ * (`overrideTheme`, useThemeOverrideStore) is laid over all of them, except while the user prefers
+ * their custom theme.
+ */
+export const resolveControllerTheme = ({
+    bgMode,
+    aiTheme,
+    legacyTheme,
+    customTheme,
+    isDaylight,
+    defaultTheme,
+    daylightTheme,
+    previousTheme,
+    overrideTheme = null,
+    customPreferred = false,
+}: {
+    bgMode: ThemeMode;
+    aiTheme: DualTheme | null;
+    legacyTheme: Theme | null;
+    customTheme: DualTheme | null;
+    isDaylight: boolean;
+    defaultTheme: Theme;
+    daylightTheme: Theme;
+    previousTheme: Theme;
+    overrideTheme?: DualTheme | null;
+    customPreferred?: boolean;
+}): Theme => {
+    const normalizeTheme = (nextTheme: Theme) => applyStoredAnimationIntensityToTheme(nextTheme);
+
+    if (overrideTheme && !(customPreferred && customTheme)) {
+        return normalizeTheme(getSelectedDualTheme(overrideTheme, isDaylight));
+    }
+
+    // The AI fallback below keeps the previous theme's keyword colors and icons; a mod's theme that was just
+    // taken off (its provider is `mod:<id>`, hostTheme.ts) lends it none.
+    const carriedTheme = previousTheme.provider?.startsWith('mod:')
+        ? { ...previousTheme, wordColors: [], lyricsIcons: [] }
+        : previousTheme;
+
+    if (bgMode === 'custom' && customTheme) {
+        return normalizeTheme(getSelectedDualTheme(customTheme, isDaylight));
+    }
+
+    if (bgMode === 'ai') {
+        if (aiTheme) {
+            return normalizeTheme(getSelectedDualTheme(aiTheme, isDaylight));
+        }
+
+        if (legacyTheme) {
+            return normalizeTheme(legacyTheme);
+        }
+    }
+
+    // The default source is the built-in theme itself: an AI or legacy theme stays loaded so the
+    // user can switch back to it, but lends none of its colors here (#947).
+    return normalizeTheme(resolveBgModeTheme({
+        mode: bgMode === 'custom' ? 'default' : bgMode,
+        aiTheme,
+        isDaylight,
+        defaultTheme,
+        daylightTheme,
+        previousTheme: carriedTheme,
+    }));
+};
+
 export function useThemeController({
     defaultTheme,
     daylightTheme,
@@ -179,6 +246,9 @@ export function useThemeController({
     ));
     const [currentSongHasLocalAiTheme, setCurrentSongHasLocalAiTheme] = useState(false);
     const [isGeneratingTheme, setIsGeneratingTheme] = useState(false);
+    const themeOverride = useThemeOverrideStore(state => state.override);
+    const overrideTheme = themeOverride?.theme ?? null;
+    const customPreferredNow = isCustomThemePreferred && Boolean(customTheme);
     const activeThemeGenerationCountRef = useRef(0);
     const themeGenerationSongKeysRef = useRef(new Set<string>());
 
@@ -256,42 +326,33 @@ export function useThemeController({
         saveStoredLastAppliedThemePointer(pointer);
     }, [aiTheme, bgMode, customTheme, legacyTheme]);
 
+    // The override layer refuses mods while the user prefers their custom theme, and a mod's theme
+    // already in place ends when that preference comes on (at start too: mods may apply before this runs).
     useEffect(() => {
-        setTheme(previousTheme => {
-            const normalizeTheme = (nextTheme: Theme) => applyStoredAnimationIntensityToTheme(nextTheme);
+        const overrideStore = useThemeOverrideStore.getState();
+        overrideStore.setCustomPreferred(customPreferredNow);
+        if (customPreferredNow) overrideStore.clearOverride({ kind: 'host' });
+    }, [customPreferredNow]);
 
-            if (bgMode === 'custom' && customTheme) {
-                return normalizeTheme(getSelectedDualTheme(customTheme, isDaylight));
-            }
+    useEffect(() => {
+        setTheme(previousTheme => resolveControllerTheme({
+            bgMode, aiTheme, legacyTheme, customTheme, isDaylight, defaultTheme, daylightTheme, previousTheme,
+            overrideTheme, customPreferred: customPreferredNow,
+        }));
+    }, [aiTheme, bgMode, customTheme, daylightTheme, defaultTheme, isDaylight, legacyTheme, overrideTheme, customPreferredNow]);
 
-            if (bgMode === 'ai') {
-                if (aiTheme) {
-                    return normalizeTheme(getSelectedDualTheme(aiTheme, isDaylight));
-                }
-
-                if (legacyTheme) {
-                    return normalizeTheme(legacyTheme);
-                }
-            }
-
-            const baseTheme = getBaseTheme();
-            if (legacyTheme) {
-                return normalizeTheme({
-                    ...legacyTheme,
-                    backgroundColor: baseTheme.backgroundColor,
-                });
-            }
-
-            return normalizeTheme(resolveBgModeTheme({
-                mode: bgMode === 'custom' ? 'default' : bgMode,
-                aiTheme,
-                isDaylight,
-                defaultTheme,
-                daylightTheme,
-                previousTheme,
-            }));
-        });
-    }, [aiTheme, bgMode, customTheme, daylightTheme, defaultTheme, isDaylight, legacyTheme]);
+    // The song's light and dark themes: the pair `theme` is picked from by the app's mode (a scene takes
+    // the one that fits its own picture, whatever that mode).
+    const songThemePair = useMemo((): DualTheme => {
+        const sources = {
+            bgMode, aiTheme, legacyTheme, customTheme, defaultTheme, daylightTheme, previousTheme: theme,
+            overrideTheme, customPreferred: customPreferredNow,
+        };
+        return {
+            light: resolveControllerTheme({ ...sources, isDaylight: true }),
+            dark: resolveControllerTheme({ ...sources, isDaylight: false }),
+        };
+    }, [aiTheme, bgMode, customTheme, daylightTheme, defaultTheme, legacyTheme, theme, overrideTheme, customPreferredNow]);
 
     const handleToggleDaylight = (isLight: boolean) => {
         setDaylightPreference(isLight);
@@ -302,16 +363,19 @@ export function useThemeController({
             return;
         }
 
+        endThemeOverrideForUserChoice();
         setBgMode(mode);
     };
 
     const handleResetTheme = () => {
+        endThemeOverrideForUserChoice();
         setAiTheme(null);
         setLegacyTheme(null);
         setBgMode('default');
     };
 
     const applyDefaultTheme = () => {
+        endThemeOverrideForUserChoice();
         setAiTheme(null);
         setLegacyTheme(null);
         setBgMode('default');
@@ -401,6 +465,7 @@ export function useThemeController({
 
     const saveCustomDualTheme = (dualTheme: DualTheme) => {
         const sanitized = applyStoredAnimationIntensityToDualTheme(sanitizeCustomDualTheme(dualTheme));
+        endThemeOverrideForUserChoice();
         setCustomTheme(sanitized);
         setBgMode('custom');
         setStatusMsg({
@@ -415,6 +480,7 @@ export function useThemeController({
         songOrKey?: SongResult | ThemeCacheSongKey | null,
     ) => {
         const sanitized = applyStoredAnimationIntensityToDualTheme(sanitizeDualTheme(dualTheme));
+        endThemeOverrideForUserChoice();
         setLegacyTheme(null);
         setAiTheme(sanitized);
         setBgMode('ai');
@@ -439,6 +505,7 @@ export function useThemeController({
             return;
         }
 
+        endThemeOverrideForUserChoice();
         setBgMode('custom');
         setStatusMsg({
             type: 'success',
@@ -452,7 +519,12 @@ export function useThemeController({
         }
 
         applyPreferenceSwitchState(resolveCustomThemePreferenceChange(getPreferenceSwitchState(), enabled));
+        // Mirrored at once rather than a render later, so no mod's apply slips in between; a mod's theme ends
+        // as the host's doing (the contract reports the preference coming on as `host`).
+        const overrideStore = useThemeOverrideStore.getState();
+        overrideStore.setCustomPreferred(enabled && Boolean(customTheme));
         if (enabled && customTheme) {
+            overrideStore.clearOverride({ kind: 'host' });
             setBgMode('custom');
         }
 
@@ -571,6 +643,7 @@ export function useThemeController({
         currentSong: SongResult | null,
         shouldApply: () => boolean,
         origin: 'chosen' | 'fallback',
+        manual: boolean,
     ): Promise<GenerateAIThemeResult> => {
         const coverColors = coverUrl ? await extractColors(coverUrl, 5) : [];
         const coverTheme = applyStoredAnimationIntensityToDualTheme(buildBuiltinDualTheme({ coverColors }));
@@ -587,6 +660,8 @@ export function useThemeController({
         if (currentSong) {
             setCurrentSongHasLocalAiTheme(true);
         }
+        // A theme the user asked for themselves ends a mod's theme; an automatic one stays under it.
+        if (manual) endThemeOverrideForUserChoice();
         applyDualTheme(coverTheme);
         const customPreferred = bgMode === 'custom' && customTheme;
         setStatusMsg(origin === 'fallback'
@@ -637,6 +712,7 @@ export function useThemeController({
                     currentSong,
                     shouldApply,
                     'chosen',
+                    source === 'manual',
                 );
             }
 
@@ -669,6 +745,7 @@ export function useThemeController({
             if (currentSong) {
                 setCurrentSongHasLocalAiTheme(true);
             }
+            if (source === 'manual') endThemeOverrideForUserChoice();
             applyDualTheme(normalizedDualTheme);
 
             const selectedTheme = getSelectedDualTheme(normalizedDualTheme, isDaylight);
@@ -687,6 +764,7 @@ export function useThemeController({
                     currentSong,
                     shouldApply,
                     'fallback',
+                    source === 'manual',
                 );
             }
 
@@ -736,6 +814,7 @@ export function useThemeController({
 
     return {
         theme,
+        songThemePair,
         aiTheme,
         customTheme,
         hasCustomTheme: Boolean(customTheme),
@@ -746,6 +825,8 @@ export function useThemeController({
         themeGenerationSource,
         bgMode,
         isGeneratingTheme,
+        /** A mod's theme shown over the song's theme (Folium 1.10 `folium.theme.apply`), or null. */
+        themeOverride: customPreferredNow ? null : themeOverride,
         ...actions,
     };
 }

@@ -29,6 +29,7 @@ const createContext = (overrides: CommandPaletteContextOverrides = {}): CommandP
             localLibraryCatalog: { entities: [], assignments: [] },
             navigateToSearch: vi.fn(),
             submitSearch: vi.fn(async () => true),
+            searchHistory: () => [],
         },
         playback: {
             volume: 0.5,
@@ -45,6 +46,7 @@ const createContext = (overrides: CommandPaletteContextOverrides = {}): CommandP
             personalFmSelection: { mode: 'DEFAULT' as const, scene: null },
             isPersonalFmModeSupported: true,
             setPersonalFmSelection: vi.fn(),
+            isRecommendationPreferencesOffered: () => false,
             togglePlay: vi.fn(),
             toggleLoop: vi.fn(),
             next: vi.fn(),
@@ -108,11 +110,13 @@ const createContext = (overrides: CommandPaletteContextOverrides = {}): CommandP
             canChooseLibrarySuite: vi.fn(() => true),
             chooseLibrarySuite: vi.fn(),
             isLibraryWallLookAvailable: vi.fn(() => false),
+            isGridLibraryActive: vi.fn(() => true),
             libraryWallLook: vi.fn(() => 'partial' as const),
             setLibraryWallLook: vi.fn(),
             libraryWallWindowsPerBlock: vi.fn(() => 3),
             setLibraryWallWindowsPerBlock: vi.fn(),
             toggleLibraryWallStackEdges: vi.fn(),
+            toggleLibraryWallCollectionTilt: vi.fn(),
             libraryWallSeamClear: vi.fn(() => false),
             toggleLibraryWallSeamClear: vi.fn(),
             libraryWallSeamStyle: vi.fn(() => 'paper' as const),
@@ -131,6 +135,9 @@ const createContext = (overrides: CommandPaletteContextOverrides = {}): CommandP
             toggleGridViewSquareCards: vi.fn(),
             canUseGridViewSquareCards: vi.fn(() => true),
             toggleLatticeVignette: vi.fn(),
+            toggleLatticeWallForm: vi.fn(),
+            toggleLatticeRadioHideUpcoming: vi.fn(),
+            toggleLatticeBadgeCurrentOnly: vi.fn(),
             toggleLatticeAutoFocusOnSongChange: vi.fn(),
             toggleReduceLatticeMotion: vi.fn(),
             toggleFollowSystemReducedMotion: vi.fn(),
@@ -147,27 +154,37 @@ const createContext = (overrides: CommandPaletteContextOverrides = {}): CommandP
             toggleTranscodeFallback: vi.fn(),
             togglePlaybackFade: vi.fn(),
             toggleAutoSkipUnplayable: vi.fn(),
+            toggleShuffleRoundNoRepeat: vi.fn(),
             toggleAlwaysShowMainWindowTitlebar: vi.fn(),
+            togglePlayerHeaderBlur: vi.fn(),
+            toggleTitlebarSide: vi.fn(),
             toggleHideFullscreenButton: vi.fn(),
             toggleNativeMacFullscreenButton: vi.fn(),
+            toggleNativeMacTrafficLights: vi.fn(),
             toggleAutoHideCursorWithPlayerChrome: vi.fn(),
             toggleHideCursorWhenIdle: vi.fn(),
             canAutoScanLocalLibrary: vi.fn(() => false),
             toggleLocalLibraryAutoScan: vi.fn(),
             canReportPlayback: vi.fn(() => false),
             togglePlaybackReport: vi.fn(),
+            toggleAutoAiLyricSegmentation: vi.fn(),
+            toggleKeepProviderWordTiming: vi.fn(),
             voiceInputPauseSupported: false,
             modSystemEnabled: false,
             toggleVoiceInputPause: vi.fn(),
             togglePreventDisplaySleepDuringPlayback: vi.fn(),
             toggleBackgroundThrottling: vi.fn(),
+            toggleUiZoom: vi.fn(),
+            stepUiZoom: vi.fn(() => true),
             toggleWallpaperMode: vi.fn(),
             toggleCloseToTray: vi.fn(),
             toggleHideRemoteControlTitlebar: vi.fn(),
             toggleRemoteControlExpandCover: vi.fn(),
             toggleRemoteControlTextShade: vi.fn(),
+            toggleRemoteLyricPairs: vi.fn(),
             unlockRemoteControl: vi.fn(),
             toggleObsKeepMainWindowAnimation: vi.fn(),
+            toggleTrackCardInObs: vi.fn(),
             toggleWallpaperMacAutohideDock: vi.fn(),
             gpuPreference: () => 'auto',
             setGpuPreference: vi.fn(),
@@ -192,6 +209,9 @@ const createContext = (overrides: CommandPaletteContextOverrides = {}): CommandP
             setTransitionMode: vi.fn(),
             toggleTransitionPerformance: vi.fn(),
             canUseTransitionPerformance: vi.fn(() => true),
+            toggleStemMixer: vi.fn(),
+            applyStemMixerPreset: vi.fn(),
+            canUseStemMixer: vi.fn(() => true),
             isHifiSupported: () => true,
             isHifiEnabled: () => false,
             isHifiVolumeConfirmed: () => false,
@@ -208,11 +228,15 @@ const createContext = (overrides: CommandPaletteContextOverrides = {}): CommandP
             visualizerMode: 'classic',
             visualizerBackgroundMode: 'latent',
             setVisualizerMode: vi.fn(),
+            visualizerPickerKeepOpen: false,
+            setVisualizerPickerKeepOpen: vi.fn(),
             toggleRandomVisualizerModePerSong: vi.fn(),
             toggleGlowBlurQuantize: vi.fn(),
             setVisualizerBackgroundMode: vi.fn(),
             setMonetBackgroundTuning: vi.fn(),
             setLatentBackgroundTuning: vi.fn(),
+            cycleNebbiaBehind: vi.fn(() => 'aquarium' as const),
+            cycleNebbiaGlass: vi.fn(() => 'dew' as const),
             toggleVideoLayer: vi.fn(),
             setSmartBeatMode: vi.fn(),
             toggleSmartBeat: vi.fn(),
@@ -506,6 +530,24 @@ describe('command palette registry', () => {
 
         expect(getCommandPaletteMatches('清空队列', createContext())
             .some(entry => entry.command.id === 'playback-clear-queue')).toBe(false);
+    });
+
+    it('switches Nebbia\'s window scene and front glass, only while Nebbia is on screen', () => {
+        const context = createContext({ visualizer: { visualizerMode: 'nebbia' } });
+
+        const [scene] = getCommandPaletteMatches('切换窗外', context);
+        expect(scene.command.id).toBe('visualizer-nebbia-behind-cycle');
+        expect(scene.command.execute(scene.input, context)).toBe(true);
+        expect(context.visualizer.cycleNebbiaBehind).toHaveBeenCalled();
+        expect(context.shared.setStatusMsg).toHaveBeenCalledWith({ type: 'success', text: 'Outside the window: aquarium' });
+
+        const [glass] = getCommandPaletteMatches('glass style', context);
+        expect(glass.command.id).toBe('visualizer-nebbia-glass-cycle');
+        expect(glass.command.execute(glass.input, context)).toBe(true);
+        expect(context.visualizer.cycleNebbiaGlass).toHaveBeenCalled();
+
+        expect(getCommandPaletteMatches('切换玻璃', createContext())
+            .some(entry => entry.command.id === 'visualizer-nebbia-glass-cycle')).toBe(false);
     });
 
     it('matches commands by Chinese keyword and pinyin', () => {
@@ -891,6 +933,23 @@ describe('command palette registry', () => {
             expect(match.command.id).toBe('desktop-toggle-prevent-display-sleep');
             await match.command.execute('', context);
             expect(context.settings.togglePreventDisplaySleepDuringPlayback).toHaveBeenCalled();
+        } finally {
+            vi.unstubAllGlobals();
+        }
+    });
+
+    it('matches and executes the interface zoom commands', async () => {
+        vi.stubGlobal('window', { electron: {} });
+        try {
+            const context = createContext();
+            const [toggle] = getCommandPaletteMatches('界面缩放', context);
+            expect(toggle.command.id).toBe('ui-zoom-toggle');
+            await toggle.command.execute('', context);
+            expect(context.settings.toggleUiZoom).toHaveBeenCalled();
+            const [zoomOut] = getCommandPaletteMatches('缩小界面', context);
+            expect(zoomOut.command.id).toBe('ui-zoom-out');
+            await zoomOut.command.execute('', context);
+            expect(context.settings.stepUiZoom).toHaveBeenCalledWith(-1);
         } finally {
             vi.unstubAllGlobals();
         }

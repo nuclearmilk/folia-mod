@@ -30,6 +30,18 @@ describe('Lattice card typography budget', () => {
         expect(fitting.fontPx).toBeLessThan(64);
         expect(fitting.translationPx).toBe(fitting.fontPx * 0.5);
     });
+    it('bisects to the size the old top-down walk found, in a handful of measurements', () => {
+        // Sizes the 64 → 24 walk returned for these boxes (it agreed with the bisection on a 3040-box grid).
+        const walked: [number, number, number][] = [[900, 700, 64], [700, 500, 55], [360, 260, 28], [450, 260, 28],
+            [300, 600, 29], [520, 330, 36], [1, 1, 24], [40, 20, 24]];
+        for (const [width, height, fontPx] of walked) {
+            let calls = 0;
+            const counted: MeasureText = (text, font) => { calls++; return measure(text, font); };
+            expect(resolveLatticeTypography(input(), width, height, counted).fontPx).toBe(fontPx);
+            // Six probes of two measurements each, plus the two line heights.
+            expect(calls).toBeLessThanOrEqual(14);
+        }
+    });
     it('ignores all global and Monet font scale fields and the active sentence', () => {
         const base = input();
         const extra = { ...base, lyricsFontScale: 8, subtitleFontScale: 0.1, monetTuning: { fontScale: 5 },
@@ -82,6 +94,30 @@ describe('Lattice wrapping and long-line following', () => {
         const layout = layoutLatticeLine(lyric, type, 120, measure, true);
         expect(layout.pieces.filter(p => !p.translation).map(p => p.text).join('')).toBe(lyric.fullText);
         expect(layout.pieces.filter(p => p.translation).map(p => p.text).join('')).toBe(lyric.romanization);
+    });
+    it('places an RTL line from the right edge, first word rightmost, translation flush right', () => {
+        const lyric = { ...line('ئەگەر شامال يەلپۈپ'), words: [
+            { text: 'ئەگەر', startTime: 0, endTime: 1 }, { text: 'شامال', startTime: 1, endTime: 2 },
+            { text: 'يەلپۈپ', startTime: 2, endTime: 3 }], translation: '当微风吹过' };
+        const type = resolveLatticeTypography(input(), 900, 400, measure);
+        const layout = layoutLatticeLine(lyric, type, 900, measure, false);
+        const words = layout.pieces.filter(p => !p.translation && p.token.timed);
+        expect(words.map(p => p.text)).toEqual(['ئەگەر', 'شامال', 'يەلپۈپ']);
+        expect(words.every(p => p.rtl)).toBe(true);
+        expect(words[0].x + words[0].width).toBeCloseTo(900);
+        expect(words[1].x).toBeLessThan(words[0].x);
+        expect(words[2].x).toBeLessThan(words[1].x);
+        const sub = layout.pieces.filter(p => p.translation);
+        expect(layout.rtl).toBe(true);
+        expect(sub.every(p => !p.rtl)).toBe(true);
+        expect(sub.at(-1)!.x + sub.at(-1)!.width).toBeCloseTo(900);
+    });
+    it('keeps an RTL translation flush left under an LTR lyric', () => {
+        const lyric = { ...line('when the wind blows'), translation: 'ئەگەر شامال يەلپۈپ' };
+        const type = resolveLatticeTypography(input(), 900, 400, measure);
+        const sub = layoutLatticeLine(lyric, type, 900, measure, false).pieces.filter(p => p.translation);
+        expect(sub.every(p => p.rtl)).toBe(true);
+        expect(Math.min(...sub.map(p => p.x))).toBeCloseTo(0);
     });
     it('respects explicit newlines and never lets an ordinary token exceed the column', () => {
         const pieces = wrapLatticeTokens(buildMonetDisplayTokens(line('ab\ncd ef')), 55, '600 20px sans-serif', 24, measure);

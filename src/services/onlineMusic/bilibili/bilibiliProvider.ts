@@ -18,6 +18,7 @@ export const bilibiliProvider: OnlineMusicProvider = {
     id: 'bilibili',
     displayName: '哔哩哔哩',
     shortName: 'B站',
+    shortNameKey: 'onlineProviderName.bilibili',
     mark: { letter: '哔', color: '#00aeec' },
     getAvailability: getBilibiliTransportAvailability,
     capabilities: {

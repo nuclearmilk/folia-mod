@@ -10,9 +10,9 @@ import { buildObsAppearanceFromShortcode, parseObsAiParams, parseObsWebParams } 
 const DEFAULT_NOW_PLAYING_HOST = 'localhost:9863';
 
 const ObsNowPlayingSourceApp: React.FC = () => {
-    const paramsRef = useRef(parseObsWebParams(window.location.search));
+    const paramsRef = useRef(parseObsWebParams(window.location.search, window.location.hash));
     const obsAiConfigRef = useRef(parseObsAiParams(window.location.search));
-    const { host, cfg, isDaylight, transparent, visualizer, themeMode } = paramsRef.current;
+    const { host, cfg, isDaylight, transparent, visualizer, themeMode, language } = paramsRef.current;
 
     const source = useNowPlayingSource({ enabled: true, host: host || DEFAULT_NOW_PLAYING_HOST });
     const appearance = useMemo(
@@ -20,7 +20,7 @@ const ObsNowPlayingSourceApp: React.FC = () => {
         [cfg, isDaylight, transparent, visualizer, themeMode],
     );
 
-    return <ObsWebSourceApp source={source} appearance={appearance} obsAiConfig={obsAiConfigRef.current} />;
+    return <ObsWebSourceApp source={source} appearance={appearance} language={language} obsAiConfig={obsAiConfigRef.current} />;
 };
 
 export default ObsNowPlayingSourceApp;

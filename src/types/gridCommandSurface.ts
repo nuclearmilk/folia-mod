@@ -10,7 +10,9 @@ import type { LocalSongFolderSortDirection, LocalSongFolderSortField } from '../
 
 export type GridSurfaceActionId =
     | 'play-filtered'
+    | 'shuffle-play-filtered'
     | 'enqueue-filtered'
+    | 'collect-filtered'
     | 'sort-file-name'
     | 'sort-modified-date'
     | 'sort-album-track'
@@ -20,8 +22,10 @@ export type GridSurfaceActionId =
     | 'resync-folder'
     | 'resync-all-folders'
     | 'organize-song-info'
+    | 'reorder-playlist'
     | 'export-playlist'
     | 'edit-entity'
+    | 'set-cover'
     | 'toggle-edit-mode'
     | 'reload-online-collection'
     | 'toggle-subscribe';
@@ -33,7 +37,7 @@ export type GridSurfaceState = {
      * stay written once, next to the buttons that already obey them.
      */
     availableActions: readonly GridSurfaceActionId[];
-    /** How many songs `play-filtered` / `enqueue-filtered` would act on right now. */
+    /** How many songs `play-filtered` / `shuffle-play-filtered` / `enqueue-filtered` / `collect-filtered` would act on right now. */
     filteredTrackCount: number;
     isFilterActive: boolean;
     sortField: LocalSongFolderSortField;

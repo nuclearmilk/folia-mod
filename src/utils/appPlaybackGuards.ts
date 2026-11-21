@@ -143,3 +143,7 @@ export const samePlaybackKeySequence = (
 export const hasMixedPlaybackSources = (queue: SongResult[]): boolean => (
     new Set(queue.map(getPlaybackSongSource)).size > 1
 );
+
+export const isCustomPlaylistTrackKey = (songId: string): boolean => (
+    songId.startsWith('online:') || songId.startsWith('navidrome:')
+);

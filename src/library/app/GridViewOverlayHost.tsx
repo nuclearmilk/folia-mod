@@ -7,7 +7,7 @@ import {
     useCollectionNavigationStore,
     type CollectionNavigationSnapshot,
 } from '../../stores/useCollectionNavigationStore';
-import { LocalSong, SongResult, UnifiedSong } from '../../types';
+import { LocalPlaylist, LocalSong, SongResult, UnifiedSong } from '../../types';
 import { getNavidromeConfig, navidromeApi } from '../../services/navidromeService';
 import { getLocalCoverAssetUrl } from '../../services/localCoverAssetUrl';
 import {
@@ -31,6 +31,11 @@ import type { LibraryLocalCatalogSnapshot } from '../core/home/home.contract';
 import { LocalLibraryEntityPanel } from '../../components/modal/LocalLibraryEntityPanel';
 import { LocalFolderSongInfoPanel } from '../../components/modal/LocalFolderSongInfoPanel';
 import { LocalSongMetadataMatchDialog } from '../../components/modal/LocalSongMetadataMatchDialog';
+import { useScratchpadStore } from '../../stores/useScratchpadStore';
+import LocalCollectionCoverDialog from '../../components/local-collection-cover/LocalCollectionCoverDialog';
+import LocalPlaylistOrderEditor from '../../components/local-playlist-order/LocalPlaylistOrderEditor';
+import { resolveLocalCollectionCover } from '../core/collection/cover/localCollectionCover';
+import { useLocalCollectionCoverUrls } from '../core/collection/cover/useLocalCollectionCoverUrls';
 import { followEntityRedirect } from '../../utils/localLibraryIndex';
 import { buildLocalCatalogIndex, resolveLocalCatalogLink } from '../core/shared/localCatalogLinks';
 import { resolveSongCatalogRef } from '../../services/onlineMusic/catalogRefs';
@@ -244,8 +249,12 @@ const GridViewOverlayHost: React.FC<GridViewOverlayHostProps> = ({
     const [resolvedLocalCollectionCoverUrl, setResolvedLocalCollectionCoverUrl] = useState<string | undefined>(undefined);
     const [navidromePlaylistItems, setNavidromePlaylistItems] = useState<Array<{ id: string | number; name: string; description?: string; }>>([]);
     const [editingEntityId, setEditingEntityId] = useState<string | null>(null);
+    const [orderingPlaylist, setOrderingPlaylist] = useState<LocalPlaylist | null>(null);
     const [organizingFolder, setOrganizingFolder] = useState<LocalGridViewCollectionDescriptor | null>(null);
     const [matchingSongId, setMatchingSongId] = useState<string | null>(null);
+    const [coverEditingCollection, setCoverEditingCollection] = useState<LocalGridViewCollectionDescriptor | null>(null);
+    // 本地集合的自定义封面（键 → URL）：盖在下面由曲目推出来的自动封面上。
+    const localCollectionCoverUrls = useLocalCollectionCoverUrls();
     const selectedCollectionKey = collectionKey(selectedCollection);
     const refreshedSelectedCollection = useMemo(() => {
         if (!selectedCollection || !isLocalGridViewCollection(selectedCollection)) {
@@ -280,14 +289,18 @@ const GridViewOverlayHost: React.FC<GridViewOverlayHostProps> = ({
             return liveSelectedCollection;
         }
 
-        const coverUrl = resolvedLocalCollectionCoverUrl
-            || getPersistentCoverUrl(liveSelectedCollection.coverUrl);
+        // 设了自定义封面就用它（固定不变）；否则是由曲目推出来的自动封面。自动封面另外带着，画曲目的地方
+        // （Bravais 的专辑墙）用它：集合封面不影响集合里的歌。（自定义封面是 blob: 地址，getPersistentCoverUrl
+        // 不会把导航栈里带着的那张当成自动封面。）
+        const automaticCoverUrl = resolvedLocalCollectionCoverUrl || getPersistentCoverUrl(liveSelectedCollection.coverUrl);
+        const coverUrl = resolveLocalCollectionCover(liveSelectedCollection, automaticCoverUrl, localCollectionCoverUrls);
 
         return {
             ...liveSelectedCollection,
             coverUrl,
+            automaticCoverUrl: automaticCoverUrl ?? null,
         };
-    }, [liveSelectedCollection, resolvedLocalCollectionCoverUrl]);
+    }, [liveSelectedCollection, localCollectionCoverUrls, resolvedLocalCollectionCoverUrl]);
 
     const [customTracksMap, setCustomTracksMap] = useState<Map<string, SongResult>>(() => new Map());
 
@@ -348,7 +361,7 @@ const GridViewOverlayHost: React.FC<GridViewOverlayHostProps> = ({
             ? {
                 ...surfaceProps,
                 onPlaySong: (track, queue) => surfaceProps.onPlaySong(track, queue, false, selectedCollection),
-                onPlayAll: surfaceProps.onPlayAll && ((songs) => surfaceProps.onPlayAll?.(songs, selectedCollection)),
+                onPlayAll: surfaceProps.onPlayAll && ((songs, _from, options) => surfaceProps.onPlayAll?.(songs, selectedCollection, options)),
             }
             : surfaceProps,
     ), [selectedCollection, surfaceProps]);
@@ -650,6 +663,8 @@ const GridViewOverlayHost: React.FC<GridViewOverlayHostProps> = ({
         t,
         dialogs: {
             editEntity: setEditingEntityId,
+            editCover: setCoverEditingCollection,
+            reorderPlaylist: setOrderingPlaylist,
             organizeFolder: setOrganizingFolder,
             matchSong: setMatchingSongId,
         },
@@ -684,6 +699,26 @@ const GridViewOverlayHost: React.FC<GridViewOverlayHostProps> = ({
     const matchingSong = matchingSongId
         ? surfaceProps.localSongs.find(song => song.id === matchingSongId)
         : undefined;
+    // 本地实体、歌曲信息、手动匹配这几个弹窗和首页层在同一个层叠上下文里，盖不过左边的速记簿：开着时让它藏起来。
+    const isScratchpadCovered = Boolean(editingEntity || organizingFolder || matchingSong || orderingPlaylist);
+    useEffect(() => {
+        useScratchpadStore.getState().setCovered(isScratchpadCovered);
+    }, [isScratchpadCovered]);
+    useEffect(() => () => useScratchpadStore.getState().setCovered(false), []);
+
+    // 封面对话框列的是集合此刻的歌（导航栈里的描述可能落后于曲库，取刷新过的那一份）。
+    const coverEditingTarget = coverEditingCollection && liveSelectedCollection
+        && isLocalGridViewCollection(liveSelectedCollection)
+        && collectionKey(liveSelectedCollection) === collectionKey(coverEditingCollection)
+        ? liveSelectedCollection
+        : coverEditingCollection;
+    const coverEditingSongs = useMemo(() => {
+        if (!coverEditingTarget) return [];
+        const songsById = new Map(surfaceProps.localSongs.map(song => [song.id, song]));
+        return coverEditingTarget.songIds
+            .map(songId => songsById.get(songId))
+            .filter((song): song is LocalSong => Boolean(song));
+    }, [coverEditingTarget, surfaceProps.localSongs]);
     const matchingSongAssignment = matchingSongId
         ? localLibraryCatalog.assignments.find(assignment => assignment.songId === matchingSongId)
         : undefined;
@@ -752,6 +787,7 @@ const GridViewOverlayHost: React.FC<GridViewOverlayHostProps> = ({
                                 onDone={handleDoneCollection}
                                 onOpenAlbum={handlePushAlbumCollection}
                                 onOpenArtist={handlePushArtistCollection}
+                                onOpenCollection={handlePushCollection}
                                 onPopTo={onPopCollectionTo}
                             />
                         </React.Suspense>
@@ -819,6 +855,25 @@ const GridViewOverlayHost: React.FC<GridViewOverlayHostProps> = ({
                         await localLibraryCatalog.reload();
                         await surfaceProps.onRefreshLocalSongs();
                     }}
+                />
+            )}
+            {coverEditingTarget && (
+                <LocalCollectionCoverDialog
+                    collection={coverEditingTarget}
+                    songs={coverEditingSongs}
+                    isDaylight={isDaylight}
+                    onClose={() => setCoverEditingCollection(null)}
+                />
+            )}
+            {orderingPlaylist && (
+                <LocalPlaylistOrderEditor
+                    key={orderingPlaylist.id}
+                    playlist={orderingPlaylist}
+                    localSongs={surfaceProps.localSongs}
+                    catalog={localLibraryCatalog}
+                    isDaylight={isDaylight}
+                    onClose={() => setOrderingPlaylist(null)}
+                    onRefresh={surfaceProps.onRefreshLocalPlaylists}
                 />
             )}
             {matchingSong && (

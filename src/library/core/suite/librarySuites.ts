@@ -54,7 +54,11 @@ export const LIBRARY_ACTION_IDS: readonly LibraryActionId[] = [
     'play',
     'enqueue',
     'play-scope',
+    'shuffle-scope',
     'enqueue-scope',
+    'collect',
+    'collect-scope',
+    'save-to-playlist',
     'filter',
     'sort',
     'reload',
@@ -65,8 +69,10 @@ export const LIBRARY_ACTION_IDS: readonly LibraryActionId[] = [
     'delete-collection',
     'resync-folder',
     'resync-all-folders',
+    'reorder-playlist',
     'export-playlist',
     'edit-entity',
+    'set-cover',
     'organize-song-info',
     'match-song',
     'add-to-playlist',
@@ -93,6 +99,8 @@ export const LIBRARY_HOME_ACTION_IDS: readonly LibraryHomeActionId[] = [
     'home-refresh-folders',
     'home-import-playlist',
     'home-refresh-navidrome',
+    'explore-collect',
+    'explore-save-to-playlist',
 ];
 
 /** 歌手页 surface 的全部动作（与 LibraryArtistActionId 一一对应，单测核对）。 */
@@ -100,6 +108,7 @@ export const LIBRARY_ARTIST_ACTION_IDS: readonly LibraryArtistActionId[] = [
     'play',
     'enqueue',
     'play-scope',
+    'shuffle-scope',
     'enqueue-scope',
     'filter',
     'reload',
@@ -107,6 +116,7 @@ export const LIBRARY_ARTIST_ACTION_IDS: readonly LibraryArtistActionId[] = [
     'edit-entity',
     'open-album',
     'open-artist',
+    'open-all-songs',
 ];
 
 /** 账户 surface 的全部动作（与 LibraryAccountActionId 一一对应，单测核对）。 */
@@ -154,8 +164,10 @@ export const LIBRARY_ACTION_MUTATION_CAPABILITY: {
     'delete-collection': 'deleteCollection',
     'resync-folder': 'resyncFolder',
     'resync-all-folders': 'resyncAllFolders',
+    'reorder-playlist': 'reorderPlaylist',
     'export-playlist': 'exportPlaylist',
     'edit-entity': 'editEntity',
+    'set-cover': 'setCover',
     'organize-song-info': 'organizeSongInfo',
     'match-song': 'matchSong',
     'add-to-playlist': 'addToPlaylist',

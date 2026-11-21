@@ -1,3 +1,4 @@
+import { useRemoteSeekRevision } from '../../../remote/useRemoteSeekRevision';
 import { useEffect, useRef, useState } from 'react';
 import type React from 'react';
 import type { RefObject } from 'react';
@@ -21,18 +22,24 @@ import { resolveStagePlayerPositionSec } from '../../../../utils/stagePlayerSnap
 import { getPlaybackSongKey, getPlaybackSourceRef } from '../../../../utils/appPlaybackGuards';
 import { omni } from '../../../../services/onlineMusic/omni';
 import { createRemoteTrackTransitionFeed, type RemoteTrackTransitionFeed } from './remoteTrackTransitionFeed';
+import { buildRemoteQueueItems, isRemoteQueueCommand } from './remoteQueueFeed';
+import { runTransportButtonAction } from './useTransportCommandRefs';
+import i18n from '../../../../i18n/config';
 import { useStableActionSurface } from '../../../../hooks/useStableCallbacks';
 import { selectDisplayCoverUrl, selectDisplayDuration, selectDisplayLyrics, selectDisplayPlayerState, selectDisplaySong, usePlaybackStore } from '../../../../stores/usePlaybackStore';
 import { useAppChromeStore } from '../../../../stores/useAppChromeStore';
 import { useThemeSettingsStore } from '../../../../stores/useThemeSettingsStore';
 import { usePlayerChromeSettingsStore } from '../../../../stores/usePlayerChromeSettingsStore';
 import { useTypographySettingsStore } from '../../../../stores/useTypographySettingsStore';
+import { useDesktopSettingsStore } from '../../../../stores/useDesktopSettingsStore';
+import { openSettings } from '../../../../stores/useSettingsModalStore';
 import { currentTime } from '../../../../stores/motionSignals';
 import { useRemoteControlActions } from '../../../../hooks/useRemoteControlActions';
 import { subscribeRemoteActions } from '../../../../mods/folium/registries/remoteActions';
 import { errorMessage } from '../../../../utils/errorText';
-import { getObservedMedia, hifiMediaShim } from '../../../../services/hifi/hifiMediaShim';
+import { getObservedMedia } from '../../../../services/hifi/hifiMediaShim';
 import { seekHifiRoute } from '../../../hifi/hifiRouteTransport';
+import { seekExternalPlayback } from '../../../../services/onlineMusic/externalPlayback';
 
 // Bridges Electron-specific shell features without coupling to UI components.
 const DISCORD_PRESENCE_SNAPSHOT_INTERVAL_MS = 1000;
@@ -59,6 +66,8 @@ type UseElectronPlaybackBridgeOptions = {
     getDisplayAudioElement?: () => HTMLAudioElement | null;
     effectiveLoopMode: 'off' | 'all' | 'one';
     isNowPlayingStageActive: boolean;
+    externalTrackTitle: string | null;
+    externalTrackArtist: string | null;
     mediaSessionPlayRef: RefObject<() => Promise<void>>;
     mediaSessionPauseRef: RefObject<() => void>;
     mediaSessionPrevRef: RefObject<() => void>;
@@ -105,6 +114,8 @@ export const useElectronPlaybackBridge = ({
     getDisplayAudioElement,
     effectiveLoopMode,
     isNowPlayingStageActive,
+    externalTrackTitle,
+    externalTrackArtist,
     mediaSessionPlayRef,
     mediaSessionPauseRef,
     mediaSessionPrevRef,
@@ -134,6 +145,7 @@ export const useElectronPlaybackBridge = ({
     const transparentPlayerBackground = usePlayerChromeSettingsStore(state => state.transparentPlayerBackground);
     const isDaylight = useThemeSettingsStore(state => state.isDaylight);
     const subtitleContentMode = useTypographySettingsStore(state => state.subtitleContentMode);
+    const remoteLyricLayout = useDesktopSettingsStore(state => state.remoteControlLyricLayout);
     const activePlaybackContext = usePlaybackStore(state => state.activePlaybackContext);
     const audioSrc = usePlaybackStore(state => state.audioSrc);
     // On the HiFi route the clock and source below are read off the HiFi media shim instead of a deck.
@@ -155,6 +167,11 @@ export const useElectronPlaybackBridge = ({
     const [playbackSyncBridgeStatus, setPlaybackSyncBridgeStatus] = useState<ElectronPlaybackSyncBridgeStatus>(() => emptyPlaybackSyncBridgeStatus());
     const pausedByVoiceInputRef = useRef(false);
     const remoteTrackTransitionFeedRef = useRef<RemoteTrackTransitionFeed | null>(null);
+    /**
+     * The queue the remote was last sent, and in which language its tags were; null until the remote
+     * opens, so the first publish carries it.
+     */
+    const remoteQueueSentRef = useRef<{ queue: SongResult[]; language: string } | null>(null);
     const publishTrackTransitionRef = useRef(publishTrackTransition);
     const isTrackTransitionAudibleRef = useRef(isTrackTransitionAudible);
     // 渲染期改 ref 会让被丢弃的那次渲染也留下痕迹；这两个只在事件与定时发布里读，放进 effect 即可。
@@ -175,6 +192,8 @@ export const useElectronPlaybackBridge = ({
     const likeUnavailableProvider = currentSongSource?.kind === 'online' && !canLikeCurrentSong
         ? omni.getProviderLabel(currentSongSource.providerId)
         : undefined;
+
+    const remoteClockRevision = useRemoteSeekRevision(getObservedMedia(getDisplayAudioElement?.() ?? audioRef.current));
 
     // The cue is event-shaped in the main renderer. Keep only the current low-frequency snapshot
     // so the Remote's existing 500ms publisher can carry it without a React render loop.
@@ -212,10 +231,11 @@ export const useElectronPlaybackBridge = ({
     };
 
     const isAudioElementUsingCurrentSource = () => {
-        // mpv's song has no URL here; the shim names the track it is sounding, or nothing between tracks.
-        // Read live, as getObservedMedia below does, so the two never disagree about the route.
-        if (usePlaybackStore.getState().playbackRoute === 'hifi') {
-            return Boolean(hifiMediaShim.currentSrc);
+        // mpv's or the provider's player's song has no URL here; the shim names the track it is
+        // sounding, or nothing between tracks. Read live, as getObservedMedia below does, so the
+        // two never disagree about the route.
+        if (usePlaybackStore.getState().playbackRoute !== 'web') {
+            return Boolean(getObservedMedia(null)?.currentSrc);
         }
         const audioElement = audioRef.current;
         if (!audioElement || !audioSrc) {
@@ -279,7 +299,7 @@ export const useElectronPlaybackBridge = ({
         });
     };
 
-    const buildRemoteSnapshot = (options: { includeLyrics?: boolean } = {}): RemoteControlSnapshot => {
+    const buildRemoteSnapshot = (options: { includeLyrics?: boolean; includeQueue?: boolean } = {}): RemoteControlSnapshot => {
         const snapshot = buildRemoteControlSnapshotFromPlaybackSyncBridge(
             buildPlaybackSyncBridgeModelFromCurrentState(),
             {
@@ -292,8 +312,21 @@ export const useElectronPlaybackBridge = ({
         );
         const actions = remoteActions.read();
         const displayedTrackKey = currentSong ? getPlaybackSongKey(currentSong) : null;
+        const heldSong = usePlaybackStore.getState().currentSong;
         return {
             ...snapshot,
+            clockRevision: remoteClockRevision.current,
+            remoteLyricLayout,
+            ...(options.includeQueue
+                ? {
+                    queue: buildRemoteQueueItems(playQueue, {
+                        unavailable: i18n.t('status.songUnavailableTag'),
+                        video: i18n.t('status.songVideoTag'),
+                    }),
+                }
+                : {}),
+            queuePlayingKey: heldSong ? getPlaybackSongKey(heldSong) : null,
+            queueReadOnly: activePlaybackContext === 'stage',
             canLike: canLikeCurrentSong,
             likeUnavailableProvider,
             // Store updates may precede this render's displayed song. Never publish new-song
@@ -405,25 +438,16 @@ export const useElectronPlaybackBridge = ({
         }
 
         return window.electron.onTaskbarControl((action) => {
-            if (isNowPlayingControlDisabledRef.current || !audioRef.current || !taskbarHasTrackRef.current) {
-                return;
-            }
-
-            if (action === 'previous') {
-                mediaSessionPrevRef.current();
-                return;
-            }
-
-            if (action === 'next') {
-                void mediaSessionNextRef.current();
-                return;
-            }
-
-            if (taskbarPlayerStateRef.current === PlayerState.PLAYING) {
-                mediaSessionPauseRef.current();
-            } else {
-                void mediaSessionPlayRef.current();
-            }
+            runTransportButtonAction({
+                mediaSessionPlayRef,
+                mediaSessionPauseRef,
+                mediaSessionPrevRef,
+                mediaSessionNextRef,
+                taskbarHasTrackRef,
+                taskbarPlayerStateRef,
+                isNowPlayingControlDisabledRef,
+                audioRef,
+            }, action);
         });
     }, [audioRef, isNowPlayingControlDisabledRef, mediaSessionNextRef, mediaSessionPauseRef, mediaSessionPlayRef, mediaSessionPrevRef, taskbarHasTrackRef, taskbarPlayerStateRef]);
 
@@ -432,13 +456,18 @@ export const useElectronPlaybackBridge = ({
             return;
         }
 
-        void window.electron.updateTaskbarControls(
-            buildTaskbarControlsFromPlaybackSyncBridge(buildPlaybackSyncBridgeModelFromCurrentState())
-        ).catch((error) => {
-            console.warn('[Electron] Failed to update Windows taskbar controls', error);
+        const model = buildPlaybackSyncBridgeModelFromCurrentState();
+        void window.electron.updateTaskbarControls({
+            ...buildTaskbarControlsFromPlaybackSyncBridge(model),
+            title: isNowPlayingStageActive ? externalTrackTitle : model.hasTrack ? model.title : null,
+            artist: isNowPlayingStageActive ? externalTrackArtist : model.hasTrack ? model.artist : null,
+            loopMode: model.loopMode,
+            canCycleLoop: model.hasTrack,
+        }).catch((error) => {
+            console.warn('[Electron] Failed to update playback controls', error);
         });
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [currentSong, effectiveLoopMode, isFmMode, isNowPlayingStageActive, playQueue, playbackRoute, playerState]);
+    }, [currentSong, effectiveLoopMode, externalTrackTitle, externalTrackArtist, isFmMode, isNowPlayingStageActive, playQueue, playbackRoute, playerState]);
 
     // System/IME voice input pauses playback and resumes it afterwards. Resume only
     // fires when this bridge caused the pause and the track is still paused, so a
@@ -492,6 +521,7 @@ export const useElectronPlaybackBridge = ({
 
     useEffect(() => {
         if (!playbackSyncBridgeStatus.remoteControlOpen) {
+            remoteQueueSentRef.current = null;
             return;
         }
 
@@ -500,7 +530,16 @@ export const useElectronPlaybackBridge = ({
         }
 
         const publish = (options: { includeLyrics?: boolean } = {}) => {
-            void window.electron?.publishRemoteControlSnapshot(buildRemoteSnapshot(options)).catch((error) => {
+            // The queue rides along only when it changed: a long queue is too much for every 500 ms.
+            const sent = remoteQueueSentRef.current;
+            const includeQueue = sent?.queue !== playQueue || sent.language !== i18n.language;
+            if (includeQueue) {
+                remoteQueueSentRef.current = { queue: playQueue, language: i18n.language };
+            }
+            void window.electron?.publishRemoteControlSnapshot(buildRemoteSnapshot({ ...options, includeQueue })).catch((error) => {
+                if (includeQueue) {
+                    remoteQueueSentRef.current = null;
+                }
                 console.warn('[Electron] Failed to publish remote control snapshot', error);
             });
         };
@@ -529,7 +568,7 @@ export const useElectronPlaybackBridge = ({
             window.removeEventListener('resize', handleResize);
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [cachedCoverUrl, coverUrl, currentSong, duration, effectiveLoopMode, exportState, isDaylight, isFmMode, isNowPlayingStageActive, isPlayerChromeHidden, playerChromeVisibilityMode, lyrics, lyricTimelineOffsetMs, mainWindowClickThroughEnabled, playbackRoute, playbackSyncBridgeStatus, playQueue, playerState, showTransparentWindowBorder, subtitleContentMode, transparentPlayerBackground, isLiked]);
+    }, [cachedCoverUrl, coverUrl, currentSong, duration, effectiveLoopMode, exportState, isDaylight, isFmMode, isNowPlayingStageActive, isPlayerChromeHidden, playerChromeVisibilityMode, lyrics, lyricTimelineOffsetMs, mainWindowClickThroughEnabled, playbackRoute, playbackSyncBridgeStatus, playQueue, playerState, showTransparentWindowBorder, subtitleContentMode, remoteLyricLayout, transparentPlayerBackground, isLiked]);
 
     useEffect(() => {
         if (!playbackSyncBridgeStatus.discordPresenceEnabled || !window.electron?.publishDiscordPresenceSnapshot) {
@@ -572,6 +611,10 @@ export const useElectronPlaybackBridge = ({
                 void remoteActions.activate(command);
                 return;
             }
+            // The queue's rows are handled by useRemoteQueueCommands.
+            if (isRemoteQueueCommand(command)) {
+                return;
+            }
             if (onRemoteExportCommand?.(command)) {
                 return;
             }
@@ -592,6 +635,12 @@ export const useElectronPlaybackBridge = ({
             }
 
             if (command.type === 'open-export') {
+                return;
+            }
+
+            // The main process has already brought this window up.
+            if (command.type === 'open-remote-settings') {
+                openSettings('options', 'remote');
                 return;
             }
 
@@ -642,8 +691,11 @@ export const useElectronPlaybackBridge = ({
                 const nextTime = Math.max(0, Math.min(command.time, upperBound));
                 // During a blend the visible track is the outgoing one; route through the same
                 // cancel-and-resume the window's bar uses instead of moving the hidden incoming deck.
-                // mpv seeks on the HiFi route; like the deck's seek below, it leaves a paused track paused.
-                if (seekHifiRoute(nextTime)) {
+                // mpv seeks on the HiFi route; the provider's player seeks on the external route.
+                // Like the deck's seek below, both leave a paused track paused.
+                if (seekExternalPlayback(nextTime)) {
+                    // Handled: the provider's player has the song.
+                } else if (seekHifiRoute(nextTime)) {
                     // Handled: mpv has the song, the deck has no source.
                 } else if (onRemoteTransitionSeek?.(nextTime)) {
                     // Handled: the re-play seeks the deck itself once it reloads.
@@ -717,7 +769,9 @@ export const useElectronPlaybackBridge = ({
                     // INCOMING deck, silent and holding a different track, so moving it moves
                     // nothing the listener can hear. The transition-aware path cancels the blend
                     // back onto the track on screen and seeks that instead.
-                    if (seekHifiRoute(nextTime)) {
+                    if (seekExternalPlayback(nextTime)) {
+                        // Handled: the provider's player has the song.
+                    } else if (seekHifiRoute(nextTime)) {
                         // Handled: mpv has the song on the HiFi route.
                     } else if (onRemoteTransitionSeek?.(nextTime)) {
                         // Handled: that path seeks the deck it kept.

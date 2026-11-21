@@ -6,8 +6,7 @@ import { getActiveEntities } from '../../../utils/localLibraryIndex';
 import type { LibraryDirectorySelectionType } from '../directory/directory.contract';
 import type { LibraryHomeActionsSnapshot, LibraryHomeCard, LibraryHomeListAction } from './homeModel.contract';
 import { isHomeImportBusy } from './homeSources';
-import { getCachedCustomPlaylistTrack, isCustomPlaylistTrackKey } from '../../../services/localPlaylistService';
-import { getSongCoverUrl } from '../../../services/onlineMusic/songMetadata';
+import { isCustomPlaylistTrackKey } from '../../../utils/appPlaybackGuards';
 
 // src/library/core/home/localHomeModel.ts
 // Builds local-library overview groups for the desktop Grid3D surface.
@@ -18,7 +17,11 @@ import { getSongCoverUrl } from '../../../services/onlineMusic/songMetadata';
 /** 本地封面资源 id → URL（services/localCoverAssetUrl 的 getLocalCoverAssetUrl）。 */
 export type LocalCoverAssetUrlResolver = (assetId: string | undefined, size?: number) => string | null;
 
-const getLocalCoverUrl = (songs: LocalSong[], coverAssetUrl: LocalCoverAssetUrlResolver): string | undefined => {
+/** 混合本地歌单里非本地曲目（在线 / Navidrome）的封面 URL 解析函数，由调用方注入以保持本模块纯净。 */
+export type CustomPlaylistCoverResolver = (songId: string) => string | undefined;
+
+/** 一组本地歌的自动封面（最近加入、带封面的那首的封面）。集合封面对话框预览「恢复默认」后的样子也用它。 */
+export const getLocalCoverUrl = (songs: LocalSong[], coverAssetUrl: LocalCoverAssetUrlResolver): string | undefined => {
     const sortedSongs = [...songs].sort((a, b) => (b.addedAt || 0) - (a.addedAt || 0));
     const preferredSong = sortedSongs.find(song => {
         const hasEmbeddedCover = Boolean(coverAssetUrl(song.localCoverAssetId));
@@ -52,6 +55,7 @@ export const buildLocalHomeGroups = (
     t: TFunction,
     catalog: { entities: LocalLibraryEntity[]; assignments: LocalLibraryAssignment[]; } | undefined,
     coverAssetUrl: LocalCoverAssetUrlResolver,
+    customTrackCoverUrl?: CustomPlaylistCoverResolver,
 ) => {
     const getLocalCoverUrlOf = (songs: LocalSong[]) => getLocalCoverUrl(songs, coverAssetUrl);
     const folders: Record<string, LocalSong[]> = {};
@@ -211,16 +215,13 @@ export const buildLocalHomeGroups = (
             .filter((song): song is LocalSong => Boolean(song));
 
         let coverUrl = getLocalCoverUrlOf(playlistSongs);
-        if (!coverUrl) {
+        if (!coverUrl && customTrackCoverUrl) {
             for (const songId of playlist.songIds) {
                 if (isCustomPlaylistTrackKey(songId)) {
-                    const customTrack = getCachedCustomPlaylistTrack(songId);
-                    if (customTrack) {
-                        const onlineCover = getSongCoverUrl(customTrack);
-                        if (onlineCover) {
-                            coverUrl = onlineCover;
-                            break;
-                        }
+                    const onlineCover = customTrackCoverUrl(songId);
+                    if (onlineCover) {
+                        coverUrl = onlineCover;
+                        break;
                     }
                 }
             }

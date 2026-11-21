@@ -15,6 +15,14 @@
   - 使用咨询、配置求助选 `support`；广告、无意义内容选 `spam`。
 - `module`：从下列模块 id 中选一个最主要的；都不明显匹配时选 `general`。
 {{modules}}
+  - 容易混淆时按问题实际发生的位置判断：
+    - 歌词样式、歌词动效、字幕的显示问题选 `visualizer`，不要因为发生在播放页就选 `playback`；`playback` 只管能不能播、播哪首、声音从哪出。
+    - `visualizer` 管歌词「怎么画」，`lyrics` 管歌词「是什么」：只在某一个样式里出问题（重叠、错位、卡顿、动效不对）选 `visualizer`；换任何样式都一样错（时间轴不准、翻译或注音缺失、分词不对、文字顺序或字体不对）选 `lyrics`。
+    - 在线平台拿不到歌词选 `omni`；歌词拿到了但内容或时间轴不对选 `lyrics`。
+    - 某个在线平台登录不了、VIP 只能试听、拿不到推荐或歌单内容选 `omni`；内容拿到了但页面排版、入口、排序不对选 `library-ui`。
+    - 壁纸模式、遥控小窗、窗口行为、卡顿占用、启动崩溃选 `desktop`；装不上、构建失败、某个系统或发行版跑不起来、自部署选 `packaging`。
+    - 请求 Folia 运行在 Android、iOS、TV、鸿蒙等新设备上选 `packaging`。
+    - 需求是给模组开放接口时选 `folium`，即使接口涉及歌词或播放。
 - `duplicate_of`：如果与 `candidates` 中某条 issue 描述的是同一个问题或同一个需求，填它的编号 `n`；否则填 null。只能填 `candidates` 里出现过的编号。
 - `duplicate_confidence`：0 到 1。0.9 以上表示「维护者看了也会同意这是重复」。
 - `close_suggestion`：none / invalid / out_of_scope。
@@ -25,8 +33,13 @@
 - `close_confidence`：0 到 1。
 - `out_of_scope_topic`：上面列出的 id 或 null。
 - `needs_error_log`：这个问题是否需要 devtools console 的报错才能定位。纯界面交互、布局、动画、快捷键类问题填 false；崩溃、加载失败、播放失败、登录失败等填 true。非 bug 填 false。
+- `wishlist_confidence`：0 到 1，这个 issue 是不是「愿望清单」：一次塞进许多互不相关的需求（往往分好几个小节、列出很多条），或者要求另做一个版本、分支、发行形态，又没有聚焦在一个具体要解决的问题上。
+  - 只有一两个需求、或者多条需求都服务于同一个具体场景的正常建议，填 0 到 0.3。
+  - 写得长、写得规整本身不算；判断依据是需求是不是分散、是不是没有一个可以单独讨论和实现的核心诉求。
+  - bug、平台接入请求、使用咨询填 0。
+  - 0.9 以上表示「维护者看了也会同意这个 issue 应该拆开或改写后再讨论」。宁可低估。
 - `tldr`：仅当 `needs_tldr` 为 true 时输出，3 到 5 条中文要点组成的数组，每条不超过 60 字，只复述原文内容，不补充推测，不写链接；否则填 null。
 - `reason`：不超过 120 字的中文，说明分类依据，供维护者参考。
 
 ## 输出 json 格式示例
-{"type":"bug","module":"playback","duplicate_of":null,"duplicate_confidence":0,"close_suggestion":"none","close_confidence":0,"out_of_scope_topic":null,"needs_error_log":true,"tldr":null,"reason":"播放本地 m4a 文件时报错，属于播放模块的 bug。"}
+{"type":"bug","module":"playback","duplicate_of":null,"duplicate_confidence":0,"close_suggestion":"none","close_confidence":0,"out_of_scope_topic":null,"needs_error_log":true,"wishlist_confidence":0,"tldr":null,"reason":"播放本地 m4a 文件时报错，属于播放模块的 bug。"}

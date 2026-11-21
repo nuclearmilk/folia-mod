@@ -4,7 +4,9 @@ import en from './locales/en.ts';
 import zhCN from './locales/zh-CN.ts';
 import zhTW from 'virtual:folia-locale-zh-TW';
 import ind from './locales/in.ts';
+import vi from './locales/vi.ts';
 import { resolveMissingTranslation } from './missingTranslation';
+import { isPerfCheckSurface } from '../utils/appSurface';
 
 /*
  * Chinese fallback for keys the active locale does not contain.
@@ -32,11 +34,11 @@ export function flattenLocale(obj: Record<string, any>, prefix = ''): Record<str
 
 const ZH_FALLBACKS: Record<string, string> = flattenLocale(zhCN);
 
-export type AppLanguagePreference = 'system' | 'en' | 'zh-CN' | 'zh-TW' | 'in';
+export type AppLanguagePreference = 'system' | 'en' | 'zh-CN' | 'zh-TW' | 'in' | 'vi';
 export const APP_LANGUAGE_STORAGE_KEY = 'folia_app_language';
 
 const isSupportedManualLanguage = (value: string | null | undefined): value is Exclude<AppLanguagePreference, 'system'> => (
-  value === 'en' || value === 'zh-CN' || value === 'zh-TW' || value === 'in'
+  value === 'en' || value === 'zh-CN' || value === 'zh-TW' || value === 'in' || value === 'vi'
 );
 
 /*
@@ -63,6 +65,10 @@ const normalizeSupportedLanguage = (value: string | null | undefined): Exclude<A
 
   if (value === 'in' || value.toLowerCase().startsWith('id')) {
     return 'in';
+  }
+
+  if (value.toLowerCase() === 'vi' || value.toLowerCase().startsWith('vi-')) {
+    return 'vi';
   }
 
   if (value.toLowerCase().startsWith('zh')) {
@@ -134,13 +140,16 @@ i18n
       },
       in: {
         translation: ind
+      },
+      vi: {
+        translation: vi
       }
     },
     fallbackLng: 'en',
     parseMissingKeyHandler: (key: string, defaultValue?: string): string => (
       resolveMissingTranslation(ZH_FALLBACKS, key, defaultValue)
     ),
-    supportedLngs: ['en', 'zh-CN', 'zh-TW', 'in'],
+    supportedLngs: ['en', 'zh-CN', 'zh-TW', 'in', 'vi'],
     lng: initialLanguagePreference === 'system' ? detectSystemLanguage() : initialLanguagePreference,
     interpolation: {
       escapeValue: false
@@ -154,7 +163,8 @@ i18n
  * too, instead of only manual switches made in Settings.
  */
 const pushLocaleToMainProcess = (value: string | null | undefined) => {
-  if (typeof window === 'undefined') {
+  // The performance check's window only reads the language; the main window tells the main process.
+  if (typeof window === 'undefined' || isPerfCheckSurface) {
     return;
   }
 

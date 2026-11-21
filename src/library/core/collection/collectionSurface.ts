@@ -26,8 +26,11 @@ export type CoreSurfaceParams = {
     canResyncFolder: boolean;
     canResyncAllFolders: boolean;
     canOrganizeSongInfo: boolean;
+    canReorderPlaylist: boolean;
     canExportPlaylist: boolean;
     canEditEntity: boolean;
+    /** 本地文件夹 / 专辑 / 歌单能设自定义封面（只打开对话框，不随来源动作禁用）。 */
+    canSetCover: boolean;
     /** 能订阅 / 取消订阅（在线歌单、专辑）；切换进行中由 isSubscribing 挡掉。 */
     canToggleSubscribe: boolean;
     /** Online collection that can be fetched again past its cache; false while a load is running. */
@@ -49,14 +52,20 @@ export type CoreSurfaceParams = {
     sortDirection: LocalSongFolderSortDirection;
 
     playFiltered: () => void;
+    /** 随机播放当前范围；没有时（suite 没做这个入口）不发布 shuffle-play-filtered。 */
+    shufflePlayFiltered?: () => void;
     enqueueFiltered: () => void;
+    /** 收进速记簿；没有时（宿主没给 collectTracks）不发布 collect-filtered。 */
+    collectFiltered?: () => void;
     setSortField: (field: LocalSongFolderSortField) => void;
     setSortDirection: (direction: LocalSongFolderSortDirection) => void;
     resyncFolder: () => void;
     resyncAllFolders: () => void;
     organizeSongInfo: () => void;
+    reorderPlaylist: () => void;
     exportPlaylist: () => void;
     editEntity: () => void;
+    setCover: () => void;
     toggleSubscribe: () => void;
     reloadOnlineCollection: () => void;
 };
@@ -97,7 +106,11 @@ export type CoreSurfaceInputs = {
     /** 重新拉取此刻可用（useCollectionActions 的 capabilities.reload.enabled）。 */
     canReloadOnlineCollection: boolean;
     playFiltered: () => void;
+    /** 随机播放当前范围（useCollectionActions 的 shuffleScope）；suite 没有这个入口时不给。 */
+    shufflePlayFiltered?: () => void;
     enqueueFiltered: () => void;
+    /** 收进速记簿（useCollectionActions 的 collectScope）；宿主不支持时不给。 */
+    collectFiltered?: () => void;
     reloadOnlineCollection: () => void;
 
     /** renderer 订阅到的控制器快照（没有控制器时是 EMPTY_COLLECTION_MUTATION_SNAPSHOT：什么都不支持）。 */
@@ -144,8 +157,10 @@ export const buildCoreSurfaceParams = (
         canResyncFolder: hasController && capabilities.resyncFolder.supported,
         canResyncAllFolders: hasController && capabilities.resyncAllFolders.supported,
         canOrganizeSongInfo: hasController && capabilities.organizeSongInfo.supported,
+        canReorderPlaylist: hasController && capabilities.reorderPlaylist.supported,
         canExportPlaylist: hasController && capabilities.exportPlaylist.supported,
         canEditEntity: hasController && capabilities.editEntity.supported,
+        canSetCover: hasController && capabilities.setCover.supported,
         canToggleSubscribe: hasController && capabilities.subscribe.supported,
         isSourceActionPending: snapshot.sourceActionPending,
         isSubscribing: snapshot.subscribing,
@@ -156,7 +171,9 @@ export const buildCoreSurfaceParams = (
         sortDirection: inputs.sortDirection,
 
         playFiltered: inputs.playFiltered,
+        shufflePlayFiltered: inputs.shufflePlayFiltered,
         enqueueFiltered: inputs.enqueueFiltered,
+        collectFiltered: inputs.collectFiltered,
         setSortField: inputs.setSortField,
         setSortDirection: inputs.setSortDirection,
         reloadOnlineCollection: inputs.reloadOnlineCollection,
@@ -164,8 +181,10 @@ export const buildCoreSurfaceParams = (
         resyncFolder: () => void mutations?.resyncFolder(),
         resyncAllFolders: () => void mutations?.resyncAllFolders(),
         organizeSongInfo: () => void mutations?.organizeSongInfo(),
+        reorderPlaylist: () => void mutations?.reorderPlaylist(),
         exportPlaylist: () => void mutations?.exportPlaylist(),
         editEntity: () => void mutations?.editEntity(),
+        setCover: () => void mutations?.setCover(),
         toggleSubscribe: () => void mutations?.toggleSubscribe(),
     };
 };
@@ -176,7 +195,9 @@ export const buildCoreSurfaceParams = (
  */
 export const GRID_SURFACE_ACTION_SOURCES: Readonly<Record<GridSurfaceActionId, { action: LibraryActionId } | { extra: string }>> = {
     'play-filtered': { action: 'play-scope' },
+    'shuffle-play-filtered': { action: 'shuffle-scope' },
     'enqueue-filtered': { action: 'enqueue-scope' },
+    'collect-filtered': { action: 'collect-scope' },
     'sort-file-name': { action: 'sort' },
     'sort-modified-date': { action: 'sort' },
     'sort-album-track': { action: 'sort' },
@@ -186,8 +207,10 @@ export const GRID_SURFACE_ACTION_SOURCES: Readonly<Record<GridSurfaceActionId, {
     'resync-folder': { action: 'resync-folder' },
     'resync-all-folders': { action: 'resync-all-folders' },
     'organize-song-info': { action: 'organize-song-info' },
+    'reorder-playlist': { action: 'reorder-playlist' },
     'export-playlist': { action: 'export-playlist' },
     'edit-entity': { action: 'edit-entity' },
+    'set-cover': { action: 'set-cover' },
     'toggle-edit-mode': { extra: 'toggle-edit-mode' },
     'reload-online-collection': { action: 'reload' },
     'toggle-subscribe': { action: 'subscribe' },
@@ -212,6 +235,8 @@ export const buildGridSurfaceState = (params: GridSurfaceParams): GridSurfaceSta
     const availableActions: GridSurfaceActionId[] = [];
     if (hasTracks) {
         availableActions.push('play-filtered', 'enqueue-filtered');
+        if (params.shufflePlayFiltered) availableActions.push('shuffle-play-filtered');
+        if (params.collectFiltered) availableActions.push('collect-filtered');
     }
     if (params.supportsLocalTrackSorting) {
         availableActions.push('sort-file-name', 'sort-modified-date', 'sort-album-track', 'sort-toggle-direction');
@@ -231,11 +256,15 @@ export const buildGridSurfaceState = (params: GridSurfaceParams): GridSurfaceSta
     if (params.canOrganizeSongInfo) {
         availableActions.push('organize-song-info');
     }
+    if (params.canReorderPlaylist) availableActions.push('reorder-playlist');
     if (params.canExportPlaylist && canRunSourceAction) {
         availableActions.push('export-playlist');
     }
     if (params.canEditEntity) {
         availableActions.push('edit-entity');
+    }
+    if (params.canSetCover) {
+        availableActions.push('set-cover');
     }
     if (params.canEditPlaylist && canRunSourceAction) {
         availableActions.push('toggle-edit-mode');
@@ -282,15 +311,19 @@ export const runGridSurfaceAction = (action: GridSurfaceActionId, params: GridSu
 
     switch (action) {
         case 'play-filtered': return params.playFiltered();
+        case 'shuffle-play-filtered': return params.shufflePlayFiltered?.();
         case 'enqueue-filtered': return params.enqueueFiltered();
+        case 'collect-filtered': return params.collectFiltered?.();
         case 'sort-toggle-direction': return params.setSortDirection(params.sortDirection === 'asc' ? 'desc' : 'asc');
         case 'toggle-info-panel': return params.toggleInfoPanel();
         case 'toggle-track-list': return params.toggleTrackList();
         case 'resync-folder': return params.resyncFolder();
         case 'resync-all-folders': return params.resyncAllFolders();
         case 'organize-song-info': return params.organizeSongInfo();
+        case 'reorder-playlist': return params.reorderPlaylist();
         case 'export-playlist': return params.exportPlaylist();
         case 'edit-entity': return params.editEntity();
+        case 'set-cover': return params.setCover();
         case 'toggle-edit-mode': return params.toggleEditMode();
         case 'reload-online-collection': return params.reloadOnlineCollection();
         case 'toggle-subscribe': return params.toggleSubscribe();

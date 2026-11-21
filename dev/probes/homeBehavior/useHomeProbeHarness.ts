@@ -5,6 +5,7 @@ import type { HomeViewModel } from '../../../src/components/app/home/buildHomeMo
 import type { HomeLocalMusicState, HomeSurfaceProps } from '../../../src/components/app/home/homeSurfaceTypes';
 import type { GridViewCollectionDescriptor } from '../../../src/components/app/home/gridViewCollectionAdapters';
 import { useLocalLibraryCatalog } from '../../../src/hooks/useLocalLibraryCatalog';
+import { getLocalPlaylists } from '../../../src/services/localPlaylistService';
 import type { LibraryAccountController } from '../../../src/library/core/account/account.contract';
 import { useLibraryAccountController, type LibraryAccountHostTables } from '../../../src/library/app/useLibraryAccountController';
 import { useLibraryAccountProviders } from '../../../src/library/core/account/useLibraryAccount';
@@ -132,7 +133,7 @@ const INITIAL_LOCAL_STATE: HomeLocalMusicState = {
 const PROBE_ACCOUNT_TABLES: LibraryAccountHostTables = {
     logout: async () => {},
     confirmLogout: async () => true,
-    switchCleanup: { holdsSongs: () => false, resetForProviderSwitch: () => {} },
+    switchCleanup: { leaveProvider: () => {}, holdsSongsOf: () => false, dropSongsOf: () => {} },
 };
 
 /** 切换平台并当场确认（首页用例只关心切换之后的数据，不经确认框）；返回是否切了过去。 */
@@ -204,6 +205,7 @@ export const useHomeProbeModel = (initial: HomeProbeLibrary): { model: HomeViewM
         ...PROBE_SURFACE_CALLBACKS,
         onRefreshUser: () => void refreshUser(),
         onRefreshLocalSongs: refreshLocal,
+        onRefreshLocalPlaylists: async () => setLocalPlaylists(await getLocalPlaylists()),
         user: activeProvider?.user ?? null,
         playlists: activeCollections?.filter(collection => collection.type !== 'cloud') ?? [],
         cloudPlaylist: activeCollections?.find(collection => collection.type === 'cloud') ?? null,
