@@ -467,6 +467,32 @@ describe.each([
             expect(account().collections.map(collection => collection.id)).toEqual(['one', 'listening-rank-week-abc']);
             expect(warn).toHaveBeenCalledWith(`[Account] ${providerId}: sync: the listening ranking could not be read, the entries held stay: offline`, expect.objectContaining({ message: 'offline' }));
         });
+
+        it('fetches playlists, cloud entry and listening ranking concurrently', async () => {
+            const page = held<Page>();
+            const cloudHeld = held<ProviderCollection | null>();
+            const ranksHeld = held<ProviderCollection[]>();
+            const getUserPlaylists = vi.fn(() => page.promise);
+            const getCloudCollection = vi.fn(() => cloudHeld.promise);
+            const getListeningRankCollections = vi.fn(() => ranksHeld.promise);
+            platform({ library: { getUserPlaylists, getCloudCollection, getListeningRankCollections } });
+
+            const read = omni.readAccount(providerId, 'sync');
+            await vi.waitFor(() => {
+                expect(getUserPlaylists).toHaveBeenCalledTimes(1);
+                expect(getCloudCollection).toHaveBeenCalledTimes(1);
+                expect(getListeningRankCollections).toHaveBeenCalledTimes(1);
+            });
+
+            page.answer(onePage('one'));
+            cloudHeld.answer({ providerId, id: 'cloud', type: 'cloud', name: 'Cloud' });
+            ranksHeld.answer([rank('week')]);
+
+            await expect(read).resolves.toBe('read');
+            expect(account().collections.map(collection => collection.id)).toEqual([
+                'one', 'cloud', 'listening-rank-week-abc',
+            ]);
+        });
     });
 
     describe('a read crossing a press', () => {

@@ -368,28 +368,33 @@ export const createAccountReads = <R>(deps: AccountReadsDeps<R>) => {
             }
 
             reads.playlistsBeganAt = deps.now();
-            const collections = await playlistsOf(provider, user.id, current);
+            const playlistsPromise = playlistsOf(provider, user.id, current);
+            const cloudPromise: Promise<ProviderCollection | null> = provider.library?.getCloudCollection
+                ? (async () => {
+                    const heldCloud = store().accounts[providerId]?.collections.find(collection => collection.type === 'cloud') ?? null;
+                    try {
+                        return await provider.library!.getCloudCollection!(user);
+                    } catch (error) {
+                        console.warn(`[Account] ${said}: the cloud entry could not be read, the one held stays: ${messageOf(error)}`);
+                        return heldCloud;
+                    }
+                })()
+                : Promise.resolve(null);
+            const ranksPromise: Promise<ProviderCollection[]> = provider.library?.getListeningRankCollections
+                ? (async () => {
+                    const heldRanks = store().accounts[providerId]?.collections.filter(collection => collection.type === 'listening_rank') ?? [];
+                    try {
+                        return await provider.library!.getListeningRankCollections!(user);
+                    } catch (error) {
+                        console.warn(`[Account] ${said}: the listening ranking could not be read, the entries held stay: ${messageOf(error)}`, error);
+                        return heldRanks;
+                    }
+                })()
+                : Promise.resolve([]);
+            const [collections, cloud, ranks] = await Promise.all([playlistsPromise, cloudPromise, ranksPromise]);
             if (!current()) return 'unknown';
-            if (provider.library?.getCloudCollection) {
-                let cloud = store().accounts[providerId]?.collections.find(collection => collection.type === 'cloud') ?? null;
-                try {
-                    cloud = await provider.library.getCloudCollection(user);
-                } catch (error) {
-                    console.warn(`[Account] ${said}: the cloud entry could not be read, the one held stays: ${messageOf(error)}`);
-                }
-                if (!current()) return 'unknown';
-                if (cloud) collections.push(cloud);
-            }
-            if (provider.library?.getListeningRankCollections) {
-                let ranks = store().accounts[providerId]?.collections.filter(collection => collection.type === 'listening_rank') ?? [];
-                try {
-                    ranks = await provider.library.getListeningRankCollections(user);
-                } catch (error) {
-                    console.warn(`[Account] ${said}: the listening ranking could not be read, the entries held stay: ${messageOf(error)}`, error);
-                }
-                if (!current()) return 'unknown';
-                collections.push(...ranks);
-            }
+            if (cloud) collections.push(cloud);
+            if (ranks.length > 0) collections.push(...ranks);
             // The playlists show before the liked songs are read: that list may take many requests.
             store().updateAccount(providerId, { status: 'authenticated', user, collections, hydration: 'ready', error: undefined });
 

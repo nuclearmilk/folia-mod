@@ -346,8 +346,11 @@ export const createProviderAccountController = (deps: LibraryAccountControllerDe
         accounts.invalidateActiveRequests();
         accounts.setActiveProviderId(to);
         if (!readAccount) return;
+        // 切过去之后立即返回并关闭登录窗；新平台的账号/歌单刷新放在后台进行，避免阻塞切换。
         try {
-            await providerAccounts.refresh(to, 'switch');
+            void Promise.resolve(providerAccounts.refresh(to, 'switch')).catch(error => {
+                log('warn', 'switch:refresh-error', { providerId: to, ...describeLoginError(error) });
+            });
         } catch (error) {
             log('warn', 'switch:refresh-error', { providerId: to, ...describeLoginError(error) });
         }

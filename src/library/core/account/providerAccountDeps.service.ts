@@ -61,11 +61,26 @@ export const accountStorePort: LibraryAccountStorePort = {
     },
 };
 
+/** 切到近期已成功刷新的平台时跳过冗余全量拉取的冷却时间（用户手动点「同步数据」不受影响）。 */
+export const SWITCH_FRESH_MS = 3 * 60 * 1000;
+
 /**
  * 读账号：登录确认之后读到了、或者读到了人却没读到歌单（登录本身成了）都算成；平台说没人登录、问不到是没读到。
  * 切过去之后只读，不判。同步数据要人和歌单都读到才算成。readAccount 从不 reject。
  */
 export const readProviderAccount: LibraryProviderAccountPort['refresh'] = async (providerId, reason) => {
+    if (reason === 'switch') {
+        const existing = useOnlineProviderAccountStore.getState().accounts[providerId];
+        if (
+            existing?.status === 'authenticated'
+            && existing.user
+            && existing.freshness === 'fresh'
+            && typeof existing.lastUpdatedAt === 'number'
+            && windowAccountClock.now() - existing.lastUpdatedAt < SWITCH_FRESH_MS
+        ) {
+            return true;
+        }
+    }
     const outcome = await omni.readAccount(providerId, reason);
     if (reason === 'switch') return true;
     if (reason === 'sync') return outcome === 'read';

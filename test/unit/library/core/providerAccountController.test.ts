@@ -308,6 +308,25 @@ describe('providerAccountController · switch', () => {
         expect(accounts.stored()).toBe('beta');
         expect(log).toHaveBeenCalledWith('warn', 'switch:cleanup-error', expect.objectContaining({ from: 'alpha', to: 'beta', message: 'audio element gone' }));
     });
+
+    it('resolves immediately while background refresh is still pending and logs if it later fails', async () => {
+        let rejectRefresh!: (error: Error) => void;
+        refresh.mockImplementationOnce(() => new Promise<boolean>((_resolve, reject) => {
+            rejectRefresh = reject;
+        }));
+        const controller = createController();
+
+        await expect(controller.requestSwitch('beta')).resolves.toEqual({ status: 'switched', providerId: 'beta', changed: true });
+        expect(controller.getSnapshot().activeProviderId).toBe('beta');
+        expect(refresh).toHaveBeenCalledWith('beta', 'switch');
+
+        rejectRefresh(new Error('background refresh failed'));
+        await manual.flush();
+        expect(log).toHaveBeenCalledWith('warn', 'switch:refresh-error', expect.objectContaining({
+            providerId: 'beta',
+            message: 'background refresh failed',
+        }));
+    });
 });
 
 // ─── 确认之后 ───────────────────────────────────────────────────────────
